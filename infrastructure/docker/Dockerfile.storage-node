@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM rust:1.82 AS chef
+WORKDIR /mediaedge
+RUN cargo install cargo-chef
+COPY Cargo.toml Cargo.lock ./
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS planner
+WORKDIR /mediaedge
+COPY crates crates
+COPY services services
+RUN cargo chef cook --release --recipe-path recipe.json
+
+FROM chef AS builder
+WORKDIR /mediaedge
+COPY --from=planner /mediaedge/target target
+COPY --from=planner /mediaedge/recipe.json recipe.json
+RUN cargo chef build --release --recipe-path recipe.json
+COPY crates crates
+COPY services services
+ARG BIN
+RUN cargo build --release --bin $BIN
+
+FROM gcr.io/distroless/cc:nonroot
+WORKDIR /
+COPY --from=builder /mediaedge/target/release/$BIN /mediaedge-$BIN
+EXPOSE 8081
+CMD ["/mediaedge-storage-node"]

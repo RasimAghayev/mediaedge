@@ -1,0 +1,17 @@
+groups:
+  - name: mediaedge-alerts
+    rules:
+      - alert: MediaEdgeGatewayDown
+        expr: up{job="mediaedge-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MediaEdge gateway is down"
+      - alert: MediaEdgeStorageNodeDown
+        expr: up{job="mediaedge-storage-node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MediaEdge storage node is down"

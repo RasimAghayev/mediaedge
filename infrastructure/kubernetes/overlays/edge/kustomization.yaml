@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mediaedge
+resources:
+  - ../../base
+namePrefix: edge-
+images:
+  - name: ghcr.io/RasimAghayev/mediaedge-edge-node
+    newTag: dev

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: MediaEdge Community Discussion
+    url: https://github.com/RasimAghayev/mediaedge/discussions
+    about: Ask questions and discuss MediaEdge in GitHub Discussions.

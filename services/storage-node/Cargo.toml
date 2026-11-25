@@ -1,0 +1,11 @@
+[package]
+name = "mediaedge-storage-node"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "storage-node"
+path = "src/main.rs"
+
+[dependencies]
+workspace = true

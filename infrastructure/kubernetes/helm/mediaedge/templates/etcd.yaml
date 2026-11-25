@@ -1,0 +1,41 @@
+{{- if .Values.etcd.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "mediaedge.fullname" . }}-etcd
+  labels:
+    {{- include "mediaedge.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "mediaedge.fullname" . }}-etcd
+  replicas: {{ .Values.etcd.replicas }}
+  selector:
+    matchLabels:
+      app: {{ include "mediaedge.fullname" . }}-etcd
+  template:
+    metadata:
+      labels:
+        app: {{ include "mediaedge.fullname" . }}-etcd
+    spec:
+      containers:
+        - name: etcd
+          image: gcr.io/etcd-development/etcd:v3.5.13
+          command:
+            - etcd
+            - -advertise-client-urls=http://0.0.0.0:2379
+            - -listen-client-urls=http://0.0.0.0:2379
+          ports:
+            - containerPort: 2379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mediaedge.fullname" . }}-etcd
+  labels:
+    {{- include "mediaedge.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "mediaedge.fullname" . }}-etcd
+  clusterIP: None
+  ports:
+    - port: 2379
+{{- end }}

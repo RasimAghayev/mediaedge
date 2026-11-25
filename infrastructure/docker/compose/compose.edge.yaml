@@ -1,0 +1,22 @@
+services:
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.5.13
+    command: etcd -advertise-client-urls=http://0.0.0.0:2379 -listen-client-urls=http://0.0.0.0:2379
+    ports: ["2379:2379"]
+
+  edge-node:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.edge-node
+    ports: ["8082:8082"]
+    environment:
+      MEDIAEDGE_ETCD_ENDPOINTS: http://etcd:2379
+      MEDIAEDGE_EDGE_REGION: local
+      MEDIAEDGE_OFFLINE_QUEUE_PATH: /data/queue
+      MEDIAEDGE_CACHE_PATH: /data/cache
+    volumes:
+      - edge-data:/data
+    depends_on: [etcd]
+
+volumes:
+  edge-data:

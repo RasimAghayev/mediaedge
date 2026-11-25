@@ -1,0 +1,153 @@
+services:
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.5.13
+    command: >
+      etcd -advertise-client-urls=http://0.0.0.0:2379
+      -listen-client-urls=http://0.0.0.0:2379
+    ports:
+      - "2379:2379"
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - etcd-data:/var/lib/etcd
+
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+
+  nats:
+    image: nats:2.10-alpine
+    command: -js -m 8222
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "nats", "server", "check"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: bitnami/minio:2024.1.8
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - minio-data:/data
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.gateway
+    ports:
+      - "8080:8080"
+    environment:
+      MEDIAEDGE_ETCD_ENDPOINTS: http://etcd:2379
+      MEDIAEDGE_REDIS_URL: redis://redis:6379
+      MEDIAEDGE_NATS_URL: nats://nats:4222
+      MEDIAEDGE_LOG_LEVEL: debug
+    depends_on:
+      etcd:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  storage-node:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.storage-node
+    ports:
+      - "8081:8081"
+    environment:
+      MEDIAEDGE_ETCD_ENDPOINTS: http://etcd:2379
+      MEDIAEDGE_STORAGE_BACKEND: fs
+      MEDIAEDGE_STORAGE_ROOT: /data
+      MEDIAEDGE_LOG_LEVEL: debug
+    depends_on:
+      etcd:
+        condition: service_healthy
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./../../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command: --config.file=/etc/prometheus/prometheus.yml
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  loki:
+    image: grafana/loki:2.9.7
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./../../monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+      - "6831:6831/udp"
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: :9411
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./../../monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+
+volumes:
+  etcd-data:
+  redis-data:
+  minio-data:
+  storage-data:
+  prometheus-data:
+  grafana-data:

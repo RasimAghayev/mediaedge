@@ -1,0 +1,22 @@
+{
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["*"],
+      "updateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchPackagePatterns": ["*"],
+      "updateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "repositories": {
+    "RasimAghayev/mediaedge": {
+      "branchPrefix": "preview/",
+      "labels": ["type:dependencies", "preview"]
+    }
+  }
+}

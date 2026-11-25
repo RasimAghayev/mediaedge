@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage-node
+  namespace: mediaedge
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: storage-node
+  template:
+    metadata:
+      labels:
+        app: storage-node
+    spec:
+      containers:
+        - name: storage-node
+          image: ghcr.io/RasimAghayev/mediaedge-storage-node:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: MEDIAEDGE_ETCD_ENDPOINTS
+              value: "http://etcd.mediaedge.svc:2379"
+            - name: MEDIAEDGE_STORAGE_BACKEND
+              value: "fs"
+            - name: MEDIAEDGE_STORAGE_ROOT
+              value: "/data"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-node
+  namespace: mediaedge
+spec:
+  selector:
+    app: storage-node
+  ports:
+    - port: 80
+      targetPort: 8081
+  type: ClusterIP

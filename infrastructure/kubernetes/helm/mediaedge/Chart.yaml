@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mediaedge
+---
+apiVersion: helm.sh/v1
+kind: Chart
+metadata:
+  name: mediaedge
+  description: MediaEdge object storage platform
+  type: application
+  version: 0.1.0
+  appVersion: 0.1.0
+keywords:
+  - object-storage
+  - media
+  - cdn
+  - edge
+home: https://github.com/RasimAghayev/mediaedge
+sources:
+  - https://github.com/RasimAghayev/mediaedge

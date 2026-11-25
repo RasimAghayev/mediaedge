@@ -1,0 +1,11 @@
+[package]
+name = "mediaedge-media-processor"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "media-processor"
+path = "src/main.rs"
+
+[dependencies]
+workspace = true

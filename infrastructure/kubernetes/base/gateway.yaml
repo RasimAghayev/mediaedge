@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mediaedge
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: mediaedge
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/RasimAghayev/mediaedge-gateway:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MEDIAEDGE_ETCD_ENDPOINTS
+              value: "http://etcd.mediaedge.svc:2379"
+            - name: MEDIAEDGE_REDIS_URL
+              value: "redis://redis.mediaedge.svc:6379"
+            - name: MEDIAEDGE_NATS_URL
+              value: "nats://nats.mediaedge.svc:4222"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: mediaedge
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP

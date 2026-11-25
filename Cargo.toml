@@ -1,0 +1,99 @@
+# Cargo workspace root for MediaEdge
+# Members are populated in Phase 2; dependencies are added per crate as
+# implementation progresses. See docs/architecture/ for design decisions.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/mediaedge-api",
+    "crates/mediaedge-core",
+    "crates/mediaedge-storage",
+    "crates/mediaedge-metadata",
+    "crates/mediaedge-cache",
+    "crates/mediaedge-events",
+    "crates/mediaedge-media",
+    "crates/mediaedge-edge",
+    "crates/mediaedge-replication",
+    "crates/mediaedge-auth",
+    "crates/mediaedge-observability",
+    "crates/mediaedge-config",
+    "services/gateway",
+    "services/storage-node",
+    "services/edge-node",
+    "services/replication-coordinator",
+    "services/media-processor",
+]
+
+[workspace.dependencies]
+# Core
+tokio = { version = "1", features = ["full", "tracing"] }
+axum = { version = "0.7", features = ["tower"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5" }
+utoipa = { version = "5", features = ["axum"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+tracing = { version = "0.1", features = ["std"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+
+# Observability
+opentelemetry = { version = "0.27", features = ["trace", "metrics"] }
+opentelemetry-jaeger = "0.27"
+opentelemetry-prometheus = "0.27"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# Storage & Data
+opendal = { version = "0.40", features = ["fs", "s3", "azblob", "gcs", "memory"] }
+etcd-client = { version = "0.8", features = ["tls"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "scripts"] }
+async-nats = { version = "0.39", features = ["jetstream", "tokio"] }
+bytes = "1"
+futures = "0.3"
+
+# Media
+ffmpeg-next = "6"
+image = { version = "0.25", features = ["jpeg", "png", "webp", "avif"] }
+ravif = "0.17"
+m3u8-rs = "0.5"
+dash-mpd = "0.3"
+
+# Crypto & Auth
+aws-signature-v4 = "0.1"
+jsonwebtoken = "9"
+rustls = { version = "0.23", features = ["std", "dangerous_configuration", "logging"] }
+ring = "0.17"
+age = "0.10"
+reed-solomon-erasure = "0.3"
+
+# Config & Validation
+figment = { version = "0.10", features = ["toml", "env", "yaml", "serde"] }
+validator = { version = "0.17", features = ["derive"] }
+
+# Testing
+testcontainers = { version = "0.19", features = ["tokio", "etcd", "redis", "nats", "minio"] }
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+mockall = "0.13"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+color-eyre = "0.6"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
+
+[profile.ci]
+inherits = "test"
+opt-level = 2
+
+[profile.integration]
+inherits = "test"

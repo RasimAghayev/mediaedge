@@ -1,0 +1,10 @@
+[package]
+name = "mediaedge-edge"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
