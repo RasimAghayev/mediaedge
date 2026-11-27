@@ -13,22 +13,22 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use axum::{
+    Router,
     body::Body,
     extract::{ConnectInfo, MatchedPath, Request, State, WebSocketUpgrade},
     http::{HeaderMap, HeaderValue, Method, StatusCode, Uri},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post, put, delete, any},
-    Router,
+    routing::{any, delete, get, post, put},
 };
 use axum_server::Handle;
 use dashmap::DashMap;
 use futures::StreamExt;
 use governor::{Quota, RateLimiter};
-use jsonwebtoken::{decode, decode_header, jwks::Jwks, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwks::Jwks};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig as RustlsServerConfig};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -39,15 +39,17 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use mediaedge_api::{
-    openapi::{api_doc, create_openapi_router, OpenApiConfig},
-    rate_limit::{RateLimitConfig, RateLimitMiddleware},
-    validation::{ValidationMiddleware, ValidatedJson, ValidatedQuery},
     ApiMiddlewareConfig, ApiVersion, VersioningMiddleware,
+    openapi::{OpenApiConfig, api_doc, create_openapi_router},
+    rate_limit::{RateLimitConfig, RateLimitMiddleware},
+    validation::{ValidatedJson, ValidatedQuery, ValidationMiddleware},
 };
 use mediaedge_config::{
-    loader,
-    types::{AuthConfig, AuthMode, GatewayConfig, GatewayProtocolsConfig, JwtConfig, RateLimitConfig as ConfigRateLimit, ServerConfig, TlsConfig, UpstreamConfig},
-    ArcSwapConfig,
+    ArcSwapConfig, loader,
+    types::{
+        AuthConfig, AuthMode, GatewayConfig, GatewayProtocolsConfig, JwtConfig,
+        RateLimitConfig as ConfigRateLimit, ServerConfig, TlsConfig, UpstreamConfig,
+    },
 };
 use mediaedge_core::cluster::ClusterManager;
 use mediaedge_observability::{MetricsRegistry, TracingHandle};
@@ -72,13 +74,25 @@ pub struct GatewayState {
     pub metrics: Arc<MetricsRegistry>,
 
     /// Rate limiters per key (tenant/stream/IP).
-    pub rate_limiters: Arc<DashMap<String, Arc<RateLimiter<std::sync::Mutex<governor::state::NotKeyed>, governor::state::InMemoryState, governor::clock::DefaultClock>>>>,
+    pub rate_limiters: Arc<
+        DashMap<
+            String,
+            Arc<
+                RateLimiter<
+                    std::sync::Mutex<governor::state::NotKeyed>,
+                    governor::state::InMemoryState,
+                    governor::clock::DefaultClock,
+                >,
+            >,
+        >,
+    >,
 
     /// JWT validation keys cache.
     pub jwks_cache: Arc<RwLock<Option<Jwks>>>,
 
     /// Active WebSocket connections for WHIP/WHEP/MoQ.
-    pub ws_connections: Arc<DashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>>>>,
+    pub ws_connections:
+        Arc<DashMap<String, Vec<tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>>>>,
 
     /// Config reload channel.
     pub reload_tx: mpsc::UnboundedSender<()>,
@@ -86,7 +100,11 @@ pub struct GatewayState {
 
 impl GatewayState {
     /// Create a new gateway state.
-    pub async fn new(config: GatewayConfig, cluster: Arc<ClusterManager>, metrics: Arc<MetricsRegistry>) -> Result<(Self, mpsc::UnboundedReceiver<()>)> {
+    pub async fn new(
+        config: GatewayConfig,
+        cluster: Arc<ClusterManager>,
+        metrics: Arc<MetricsRegistry>,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<()>)> {
         let http_client = HttpClient::builder()
             .timeout(Duration::from_secs(config.server.request_timeout_secs))
             .build()?;
@@ -114,7 +132,17 @@ impl GatewayState {
     }
 
     /// Get or create rate limiter for a key.
-    pub fn get_rate_limiter(&self, key: &str, quota: Quota) -> Arc<RateLimiter<std::sync::Mutex<governor::state::NotKeyed>, governor::state::InMemoryState, governor::clock::DefaultClock>> {
+    pub fn get_rate_limiter(
+        &self,
+        key: &str,
+        quota: Quota,
+    ) -> Arc<
+        RateLimiter<
+            std::sync::Mutex<governor::state::NotKeyed>,
+            governor::state::InMemoryState,
+            governor::clock::DefaultClock,
+        >,
+    > {
         self.rate_limiters
             .entry(key.to_string())
             .or_insert_with(|| Arc::new(RateLimiter::direct(quota)))
@@ -219,17 +247,44 @@ async fn validate_jwt(
     let claims = token_data.claims;
 
     Ok(AuthContext {
-        tenant_id: claims.get("tenant_id").and_then(|v| v.as_str()).unwrap_or("default").to_string(),
-        user_id: claims.get("sub").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        roles: claims.get("roles").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()
-        }).unwrap_or_default(),
-        permissions: claims.get("permissions").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()
-        }).unwrap_or_default(),
-        stream_access: claims.get("stream_access").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()
-        }),
+        tenant_id: claims
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string(),
+        user_id: claims
+            .get("sub")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        roles: claims
+            .get("roles")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        permissions: claims
+            .get("permissions")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        stream_access: claims
+            .get("stream_access")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            }),
     })
 }
 
@@ -238,14 +293,26 @@ async fn validate_static_token(
     auth_config: &AuthConfig,
     token: &str,
 ) -> Result<AuthContext, StatusCode> {
-    let static_config = auth_config.static_tokens.as_ref().ok_or(StatusCode::UNAUTHORIZED)?;
-    let permissions = static_config.tokens.get(token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let static_config = auth_config
+        .static_tokens
+        .as_ref()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let permissions = static_config
+        .tokens
+        .get(token)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     Ok(AuthContext {
         tenant_id: "default".to_string(),
         user_id: None,
-        roles: permissions.split_whitespace().map(|s| s.to_string()).collect(),
-        permissions: permissions.split_whitespace().map(|s| s.to_string()).collect(),
+        roles: permissions
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect(),
+        permissions: permissions
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect(),
         stream_access: None,
     })
 }
@@ -280,20 +347,50 @@ async fn validate_webhook(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let body: serde_json::Value = response.json().await.map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     Ok(AuthContext {
-        tenant_id: body.get("tenant_id").and_then(|v| v.as_str()).unwrap_or("default").to_string(),
-        user_id: body.get("user_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        roles: body.get("roles").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()
-        }).unwrap_or_default(),
-        permissions: body.get("permissions").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()
-        }).unwrap_or_default(),
-        stream_access: body.get("stream_access").and_then(|v| v.as_array()).map(|a| {
-            a.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()
-        }),
+        tenant_id: body
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string(),
+        user_id: body
+            .get("user_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        roles: body
+            .get("roles")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        permissions: body
+            .get("permissions")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        stream_access: body
+            .get("stream_access")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect()
+            }),
     })
 }
 
@@ -302,7 +399,12 @@ async fn validate_webhook(
 // ============================================================================
 
 /// Rate limit key extractor.
-fn rate_limit_key(auth: &Option<AuthContext>, headers: &HeaderMap, addr: SocketAddr, stream_id: Option<&str>) -> String {
+fn rate_limit_key(
+    auth: &Option<AuthContext>,
+    headers: &HeaderMap,
+    addr: SocketAddr,
+    stream_id: Option<&str>,
+) -> String {
     // Priority: tenant > stream > IP
     if let Some(auth) = auth {
         if let Some(stream) = stream_id {
@@ -465,7 +567,9 @@ async fn proxy_request(
     }
 
     // Get body bytes
-    let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+    let body_bytes = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .unwrap_or_default();
     request = request.body(body_bytes);
 
     match request.send().await {
@@ -527,9 +631,16 @@ async fn handle_ws_connection(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Register connection
-    state.ws_connections.entry(protocol.to_string()).or_default().push(tx.clone());
+    state
+        .ws_connections
+        .entry(protocol.to_string())
+        .or_default()
+        .push(tx.clone());
 
-    info!("WebSocket connected: {} ({}) from {}", connection_id, protocol, addr);
+    info!(
+        "WebSocket connected: {} ({}) from {}",
+        connection_id, protocol, addr
+    );
 
     // Spawn sender task
     let sender = tokio::spawn(async move {
@@ -606,10 +717,13 @@ async fn get_cluster_capacity(State(state): State<GatewayState>) -> impl IntoRes
 async fn config_reload(State(state): State<GatewayState>) -> impl IntoResponse {
     let _ = state.reload_tx.send(());
     let config = state.config();
-    (StatusCode::OK, axum::Json(serde_json::json!({
-        "status": "ok",
-        "version": config.server.node_id.as_deref().unwrap_or("unknown")
-    })))
+    (
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "status": "ok",
+            "version": config.server.node_id.as_deref().unwrap_or("unknown")
+        })),
+    )
 }
 
 /// Get config version.
@@ -726,7 +840,10 @@ async fn create_signed_url(
     ValidatedJson(payload): ValidatedJson<mediaedge_api::openapi::SignedUrlRequest>,
 ) -> impl IntoResponse {
     // Implementation would generate signed URL
-    let url = format!("https://example.com/hls/{}/playlist.m3u8?token=signed", payload.stream_id);
+    let url = format!(
+        "https://example.com/hls/{}/playlist.m3u8?token=signed",
+        payload.stream_id
+    );
     axum::Json(mediaedge_api::openapi::SignedUrlResponse {
         url,
         expires_at: chrono::Utc::now() + chrono::Duration::seconds(payload.ttl_secs as i64),
@@ -740,11 +857,22 @@ async fn create_signed_url(
 
 /// RTMP ingest handler - runs on separate port.
 async fn rtmp_server(config: GatewayConfig, state: GatewayState) -> Result<()> {
-    if !config.protocols.rtmp.as_ref().map(|c| c.enabled).unwrap_or(false) {
+    if !config
+        .protocols
+        .rtmp
+        .as_ref()
+        .map(|c| c.enabled)
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 
-    let port = config.protocols.rtmp.as_ref().map(|c| c.port).unwrap_or(1935);
+    let port = config
+        .protocols
+        .rtmp
+        .as_ref()
+        .map(|c| c.port)
+        .unwrap_or(1935);
     info!("Starting RTMP server on port {}", port);
 
     // RTMP server implementation would go here
@@ -756,11 +884,22 @@ async fn rtmp_server(config: GatewayConfig, state: GatewayState) -> Result<()> {
 
 /// SRT ingest handler - runs on separate port.
 async fn srt_server(config: GatewayConfig, state: GatewayState) -> Result<()> {
-    if !config.protocols.srt.as_ref().map(|c| c.enabled).unwrap_or(false) {
+    if !config
+        .protocols
+        .srt
+        .as_ref()
+        .map(|c| c.enabled)
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 
-    let port = config.protocols.srt.as_ref().map(|c| c.port).unwrap_or(8888);
+    let port = config
+        .protocols
+        .srt
+        .as_ref()
+        .map(|c| c.port)
+        .unwrap_or(8888);
     info!("Starting SRT server on port {}", port);
 
     // SRT server implementation would go here
@@ -770,11 +909,22 @@ async fn srt_server(config: GatewayConfig, state: GatewayState) -> Result<()> {
 
 /// RIST ingest handler - runs on separate port.
 async fn rist_server(config: GatewayConfig, state: GatewayState) -> Result<()> {
-    if !config.protocols.rist.as_ref().map(|c| c.enabled).unwrap_or(false) {
+    if !config
+        .protocols
+        .rist
+        .as_ref()
+        .map(|c| c.enabled)
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 
-    let port = config.protocols.rist.as_ref().map(|c| c.port).unwrap_or(5000);
+    let port = config
+        .protocols
+        .rist
+        .as_ref()
+        .map(|c| c.port)
+        .unwrap_or(5000);
     info!("Starting RIST server on port {}", port);
 
     // RIST server implementation would go here
@@ -798,10 +948,7 @@ async fn whip_handler(
 // ============================================================================
 
 /// Config reload watcher.
-async fn config_reload_watcher(
-    mut reload_rx: mpsc::UnboundedReceiver<()>,
-    state: GatewayState,
-) {
+async fn config_reload_watcher(mut reload_rx: mpsc::UnboundedReceiver<()>, state: GatewayState) {
     while reload_rx.recv().await.is_some() {
         info!("Config reload triggered");
 
@@ -822,7 +969,7 @@ async fn config_reload_watcher(
 fn setup_signal_handlers(reload_tx: mpsc::UnboundedSender<()>) {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut sighup = signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
         tokio::spawn(async move {
             while sighup.recv().await.is_some() {
@@ -838,10 +985,8 @@ fn setup_signal_handlers(reload_tx: mpsc::UnboundedSender<()>) {
 
 /// Build TLS config from gateway config.
 fn build_tls_config(tls_config: &TlsConfig) -> Result<RustlsServerConfig> {
-    let cert_file = std::fs::read(&tls_config.cert_file)
-        .context("Failed to read cert file")?;
-    let key_file = std::fs::read(&tls_config.key_file)
-        .context("Failed to read key file")?;
+    let cert_file = std::fs::read(&tls_config.cert_file).context("Failed to read cert file")?;
+    let key_file = std::fs::read(&tls_config.key_file).context("Failed to read key file")?;
 
     let certs = rustls_pemfile::certs(&mut std::io::BufReader::new(&cert_file[..]))
         .collect::<Result<Vec<_>, _>>()?;
@@ -922,7 +1067,12 @@ async fn main() -> Result<()> {
     let app = build_router(state.clone()).await;
 
     // Build TLS config if needed
-    let tls_config = config.server.tls.as_ref().map(build_tls_config).transpose()?;
+    let tls_config = config
+        .server
+        .tls
+        .as_ref()
+        .map(build_tls_config)
+        .transpose()?;
 
     // Start HTTP server
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
@@ -995,12 +1145,20 @@ async fn build_router(state: GatewayState) -> Router {
     // Middleware stack
     let middleware_stack = ServiceBuilder::new()
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any))
-        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Admin routes
     let admin_routes = Router::new()
@@ -1010,20 +1168,30 @@ async fn build_router(state: GatewayState) -> Router {
         .route("/cluster/capacity", get(get_cluster_capacity))
         .route("/config/reload", post(config_reload))
         .route("/config/version", get(config_version))
-        .layer(middleware::from_fn_with_state(state.clone(), admin_auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_auth_middleware,
+        ));
 
     // Stream management routes
     let stream_routes = Router::new()
         .route("/streams", post(create_stream).get(list_streams))
-        .route("/streams/:stream_id", get(get_stream).put(update_stream).delete(delete_stream))
+        .route(
+            "/streams/:stream_id",
+            get(get_stream).put(update_stream).delete(delete_stream),
+        )
         .route("/streams/:stream_id/ingest", get(get_ingest_info))
         .route("/streams/:stream_id/egress", get(get_egress_info))
         .route("/streams/:stream_id/signed-url", post(create_signed_url));
 
     // WHIP endpoint
-    let whip_path = config.protocols.whip.as_ref().map(|c| c.path.as_str()).unwrap_or("/whip");
-    let whip_routes = Router::new()
-        .route(whip_path, any(whip_handler));
+    let whip_path = config
+        .protocols
+        .whip
+        .as_ref()
+        .map(|c| c.path.as_str())
+        .unwrap_or("/whip");
+    let whip_routes = Router::new().route(whip_path, any(whip_handler));
 
     // WebSocket upgrade routes
     let ws_routes = Router::new()
@@ -1063,7 +1231,11 @@ async fn auth_middleware(
 
     // Skip auth for health, metrics, docs
     let path = request.uri().path();
-    if path == "/health" || path == "/metrics" || path.starts_with("/api/docs") || path == "/api/openapi.json" {
+    if path == "/health"
+        || path == "/metrics"
+        || path.starts_with("/api/docs")
+        || path == "/api/openapi.json"
+    {
         return next.run(request).await;
     }
 
@@ -1141,9 +1313,18 @@ mod tests {
 
     #[test]
     fn test_extract_stream_id() {
-        assert_eq!(extract_stream_id("/api/v1/streams/abc123/egress"), Some("abc123".to_string()));
-        assert_eq!(extract_stream_id("/hls/stream1/playlist.m3u8"), Some("stream1".to_string()));
-        assert_eq!(extract_stream_id("/dash/live/manifest.mpd"), Some("live".to_string()));
+        assert_eq!(
+            extract_stream_id("/api/v1/streams/abc123/egress"),
+            Some("abc123".to_string())
+        );
+        assert_eq!(
+            extract_stream_id("/hls/stream1/playlist.m3u8"),
+            Some("stream1".to_string())
+        );
+        assert_eq!(
+            extract_stream_id("/dash/live/manifest.mpd"),
+            Some("live".to_string())
+        );
         assert_eq!(extract_stream_id("/health"), None);
     }
 
@@ -1159,10 +1340,19 @@ mod tests {
         let headers = HeaderMap::new();
         let addr: SocketAddr = "192.168.1.1:8080".parse().unwrap();
 
-        assert_eq!(rate_limit_key(&auth, &headers, addr, Some("stream1")), "tenant:tenant1:stream:stream1");
-        assert_eq!(rate_limit_key(&auth, &headers, addr, None), "tenant:tenant1");
+        assert_eq!(
+            rate_limit_key(&auth, &headers, addr, Some("stream1")),
+            "tenant:tenant1:stream:stream1"
+        );
+        assert_eq!(
+            rate_limit_key(&auth, &headers, addr, None),
+            "tenant:tenant1"
+        );
 
         let auth_none: Option<AuthContext> = None;
-        assert_eq!(rate_limit_key(&auth_none, &headers, addr, None), "ip:192.168.1.1");
+        assert_eq!(
+            rate_limit_key(&auth_none, &headers, addr, None),
+            "ip:192.168.1.1"
+        );
     }
 }

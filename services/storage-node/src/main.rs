@@ -16,18 +16,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Json, Router,
 };
 use bytes::Bytes;
 use dashmap::DashMap;
 use opendal::{Operator, layers::LoggingLayer, services::Fs};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -269,25 +269,29 @@ impl StorageNode {
         };
 
         let router = node.build_router();
-        
+
         Ok(Self { router, ..node })
     }
 
     /// Create Opendal operator from config.
-    async fn create_operator(storage_config: &mediaedge_config::types::StorageConfig) -> anyhow::Result<Operator> {
+    async fn create_operator(
+        storage_config: &mediaedge_config::types::StorageConfig,
+    ) -> anyhow::Result<Operator> {
         let backend = &storage_config.backend;
-        
+
         match backend.as_str() {
             "fs" => {
-                let fs_config = storage_config.fs.as_ref()
+                let fs_config = storage_config
+                    .fs
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("FS config required for filesystem backend"))?;
-                
+
                 let mut builder = Fs::default();
                 builder = builder.root(&fs_config.root);
                 if fs_config.create_if_missing {
                     builder = builder.create_if_missing(true);
                 }
-                
+
                 let op = Operator::new(builder)?
                     .layer(LoggingLayer::default())
                     .finish();
@@ -312,28 +316,50 @@ impl StorageNode {
             .route("/api/v1/objects/:key", get(Self::get_object))
             .route("/api/v1/objects/:key", put(Self::put_object))
             .route("/api/v1/objects/:key", delete(Self::delete_object))
-            .route("/api/v1/objects/:key/metadata", get(Self::get_object_metadata))
-            
+            .route(
+                "/api/v1/objects/:key/metadata",
+                get(Self::get_object_metadata),
+            )
             // Multipart upload
             .route("/api/v1/upload/multipart", post(Self::initiate_multipart))
-            .route("/api/v1/upload/multipart/:upload_id/parts/:part_number", put(Self::upload_part))
-            .route("/api/v1/upload/multipart/:upload_id/complete", post(Self::complete_multipart))
-            .route("/api/v1/upload/multipart/:upload_id", delete(Self::abort_multipart))
-            
+            .route(
+                "/api/v1/upload/multipart/:upload_id/parts/:part_number",
+                put(Self::upload_part),
+            )
+            .route(
+                "/api/v1/upload/multipart/:upload_id/complete",
+                post(Self::complete_multipart),
+            )
+            .route(
+                "/api/v1/upload/multipart/:upload_id",
+                delete(Self::abort_multipart),
+            )
             // Archive/DVR
             .route("/api/v1/archive/recordings", post(Self::start_recording))
-            .route("/api/v1/archive/recordings/:recording_id/stop", post(Self::stop_recording))
+            .route(
+                "/api/v1/archive/recordings/:recording_id/stop",
+                post(Self::stop_recording),
+            )
             .route("/api/v1/archive/recordings", get(Self::list_recordings))
-            .route("/api/v1/archive/recordings/:recording_id", get(Self::get_recording))
-            .route("/api/v1/archive/recordings/:recording_id", delete(Self::delete_recording))
-            
+            .route(
+                "/api/v1/archive/recordings/:recording_id",
+                get(Self::get_recording),
+            )
+            .route(
+                "/api/v1/archive/recordings/:recording_id",
+                delete(Self::delete_recording),
+            )
             // Tiering
-            .route("/api/v1/storage/tiering/policy", post(Self::set_tiering_policy))
-            .route("/api/v1/storage/tiering/status", get(Self::get_tiering_status))
-            
+            .route(
+                "/api/v1/storage/tiering/policy",
+                post(Self::set_tiering_policy),
+            )
+            .route(
+                "/api/v1/storage/tiering/status",
+                get(Self::get_tiering_status),
+            )
             // Usage
             .route("/api/v1/storage/usage", get(Self::get_storage_usage))
-            
             // Health
             .route("/health", get(Self::health_check))
             .with_state(self.clone())
@@ -379,36 +405,50 @@ impl StorageNode {
         headers: HeaderMap,
     ) -> Response {
         let _permit = node.download_semaphore.acquire().await.unwrap();
-        
+
         // Check cache first
         if let Some(entry) = node.cache.get(&key) {
-            node.metrics.counter("storage_cache_hits_total", "Cache hits").increment(1);
+            node.metrics
+                .counter("storage_cache_hits_total", "Cache hits")
+                .increment(1);
             return Self::serve_bytes(entry.data.clone(), entry.size, &headers);
         }
 
-        node.metrics.counter("storage_cache_misses_total", "Cache misses").increment(1);
+        node.metrics
+            .counter("storage_cache_misses_total", "Cache misses")
+            .increment(1);
 
         // Read from storage
         match node.operator.read(&key).await {
             Ok(data) => {
-                node.metrics.counter("storage_get_total", "Object gets").increment(1);
-                node.metrics.counter("storage_get_bytes_total", "Bytes read").increment(data.len() as u64);
-                
+                node.metrics
+                    .counter("storage_get_total", "Object gets")
+                    .increment(1);
+                node.metrics
+                    .counter("storage_get_bytes_total", "Bytes read")
+                    .increment(data.len() as u64);
+
                 // Cache if small enough
-                if data.len() < 1024 * 1024 { // 1MB
-                    node.cache.insert(key.clone(), CacheEntry {
-                        key,
-                        data: data.clone(),
-                        size: data.len(),
-                        accessed_at: Instant::now(),
-                        tier: StorageTier::Hot,
-                    });
+                if data.len() < 1024 * 1024 {
+                    // 1MB
+                    node.cache.insert(
+                        key.clone(),
+                        CacheEntry {
+                            key,
+                            data: data.clone(),
+                            size: data.len(),
+                            accessed_at: Instant::now(),
+                            tier: StorageTier::Hot,
+                        },
+                    );
                 }
-                
+
                 Self::serve_bytes(data, data.len(), &headers)
             }
             Err(e) => {
-                node.metrics.counter("storage_get_errors_total", "Get errors").increment(1);
+                node.metrics
+                    .counter("storage_get_errors_total", "Get errors")
+                    .increment(1);
                 (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response()
             }
         }
@@ -422,8 +462,9 @@ impl StorageNode {
         body: axum::body::Bytes,
     ) -> Response {
         let _permit = node.upload_semaphore.acquire().await.unwrap();
-        
-        let content_type = headers.get("content-type")
+
+        let content_type = headers
+            .get("content-type")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
@@ -433,18 +474,23 @@ impl StorageNode {
         // Write to storage
         if let Err(e) = node.operator.write(&key, data.clone()).await {
             error!("Failed to write object {}: {}", key, e);
-            node.metrics.counter("storage_put_errors_total", "Put errors").increment(1);
+            node.metrics
+                .counter("storage_put_errors_total", "Put errors")
+                .increment(1);
             return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write object").into_response();
         }
 
         // Cache the object
-        node.cache.insert(key.clone(), CacheEntry {
-            key: key.clone(),
-            data: data.clone(),
-            size,
-            accessed_at: Instant::now(),
-            tier: StorageTier::Hot,
-        });
+        node.cache.insert(
+            key.clone(),
+            CacheEntry {
+                key: key.clone(),
+                data: data.clone(),
+                size,
+                accessed_at: Instant::now(),
+                tier: StorageTier::Hot,
+            },
+        );
 
         // If erasure coding enabled, encode and store shards
         if let Some(coder) = &node.erasure_coder {
@@ -453,8 +499,12 @@ impl StorageNode {
             }
         }
 
-        node.metrics.counter("storage_put_total", "Object puts").increment(1);
-        node.metrics.counter("storage_put_bytes_total", "Bytes written").increment(size as u64);
+        node.metrics
+            .counter("storage_put_total", "Object puts")
+            .increment(1);
+        node.metrics
+            .counter("storage_put_bytes_total", "Bytes written")
+            .increment(size as u64);
 
         let etag = format!("\"{}\"", blake3::hash(&data).to_hex());
         (StatusCode::OK, etag).into_response()
@@ -471,7 +521,9 @@ impl StorageNode {
         }
 
         node.cache.remove(&key);
-        node.metrics.counter("storage_delete_total", "Object deletes").increment(1);
+        node.metrics
+            .counter("storage_delete_total", "Object deletes")
+            .increment(1);
 
         StatusCode::NO_CONTENT.into_response()
     }
@@ -488,7 +540,10 @@ impl StorageNode {
                     size: metadata.content_length(),
                     content_type: None, // Would extract from metadata
                     etag: format!("\"{}\"", metadata.etag().unwrap_or("")),
-                    last_modified: metadata.last_modified().map(|t| t.timestamp() as u64).unwrap_or(0),
+                    last_modified: metadata
+                        .last_modified()
+                        .map(|t| t.timestamp() as u64)
+                        .unwrap_or(0),
                     tier: StorageTier::Hot, // Would determine from tiering
                     replication_status: ReplicationStatus::Completed,
                     erasure_coded: node.erasure_coder.is_some(),
@@ -496,9 +551,7 @@ impl StorageNode {
                 };
                 Json(obj_meta).into_response()
             }
-            Err(e) => {
-                (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response()
-            }
+            Err(e) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
         }
     }
 
@@ -564,7 +617,9 @@ impl StorageNode {
         };
 
         // In real implementation, would store recording metadata
-        node.metrics.counter("storage_recordings_started_total", "Recordings started").increment(1);
+        node.metrics
+            .counter("storage_recordings_started_total", "Recordings started")
+            .increment(1);
 
         Json(serde_json::json!({ "recording_id": recording_id })).into_response()
     }
@@ -575,7 +630,9 @@ impl StorageNode {
         Json(req): Json<StopRecordingRequest>,
     ) -> Response {
         // In real implementation, would update recording metadata
-        node.metrics.counter("storage_recordings_stopped_total", "Recordings stopped").increment(1);
+        node.metrics
+            .counter("storage_recordings_stopped_total", "Recordings stopped")
+            .increment(1);
 
         Json(serde_json::json!({ "status": "stopped" })).into_response()
     }
@@ -619,9 +676,7 @@ impl StorageNode {
     }
 
     /// Get tiering status.
-    async fn get_tiering_status(
-        State(_node): State<Arc<StorageNode>>,
-    ) -> Response {
+    async fn get_tiering_status(State(_node): State<Arc<StorageNode>>) -> Response {
         // In real implementation, would return tiering status
         Json(serde_json::json!({ "status": "active" })).into_response()
     }
@@ -629,9 +684,7 @@ impl StorageNode {
     // ==================== Usage ====================
 
     /// Get storage usage.
-    async fn get_storage_usage(
-        State(node): State<Arc<StorageNode>>,
-    ) -> Response {
+    async fn get_storage_usage(State(node): State<Arc<StorageNode>>) -> Response {
         let usage = node.calculate_usage().await;
         Json(usage).into_response()
     }
@@ -640,13 +693,16 @@ impl StorageNode {
     async fn calculate_usage(&self) -> StorageUsage {
         // In real implementation, would scan storage and calculate usage
         let mut by_tier = HashMap::new();
-        
+
         for tier in [StorageTier::Hot, StorageTier::Warm, StorageTier::Cold] {
-            by_tier.insert(tier, TierUsage {
-                total_bytes: 1000_000_000_000, // 1TB
-                used_bytes: 500_000_000_000,   // 500GB
-                object_count: 10000,
-            });
+            by_tier.insert(
+                tier,
+                TierUsage {
+                    total_bytes: 1000_000_000_000, // 1TB
+                    used_bytes: 500_000_000_000,   // 500GB
+                    object_count: 10000,
+                },
+            );
         }
 
         StorageUsage {
@@ -690,7 +746,7 @@ impl StorageNode {
                         if *shutdown_rx.borrow() {
                             break;
                         }
-                        
+
                         if let Some(tiering) = &config {
                             // In real implementation, would move objects between tiers
                             debug!("Running tiering job");
@@ -727,7 +783,7 @@ impl StorageNode {
                         if *shutdown_rx.borrow() {
                             break;
                         }
-                        
+
                         // In real implementation, would find and clean orphaned recordings
                         debug!("Running orphan cleanup");
                         metrics.counter("storage_orphan_cleanup_total", "Orphan cleanups").increment(1);
@@ -823,7 +879,7 @@ impl StorageNode {
     /// Serve bytes with proper headers.
     fn serve_bytes(data: Bytes, size: usize, request_headers: &HeaderMap) -> Response {
         let mut response = Response::new(data);
-        
+
         // Handle range requests
         if let Some(range_header) = request_headers.get("range") {
             if let Ok(range_str) = range_header.to_str() {
@@ -832,14 +888,12 @@ impl StorageNode {
             }
         }
 
-        response.headers_mut().insert(
-            "content-length",
-            size.to_string().parse().unwrap(),
-        );
-        response.headers_mut().insert(
-            "accept-ranges",
-            "bytes".parse().unwrap(),
-        );
+        response
+            .headers_mut()
+            .insert("content-length", size.to_string().parse().unwrap());
+        response
+            .headers_mut()
+            .insert("accept-ranges", "bytes".parse().unwrap());
 
         response
     }
@@ -867,34 +921,36 @@ impl Clone for StorageNode {
 #[tokio::main]
 async fn main() -> color_eyre::eyre::Result<()> {
     color_eyre::install()?;
-    
+
     // Initialize tracing
     mediaedge_observability::tracing::init();
-    
+
     tracing::info!("mediaedge-storage-node starting");
 
     // Load config (in real implementation, would use ConfigLoader)
     let config = StorageNodeConfig::default();
-    
-    let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default())?);
-    
+
+    let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(
+        &Default::default(),
+    )?);
+
     let node = Arc::new(StorageNode::new(config, metrics).await?);
-    
+
     // Start background tasks
     node.start_background_tasks().await?;
-    
+
     // Start HTTP server
     let addr = format!("{}:{}", node.config.server.host, node.config.server.port)
         .parse::<std::net::SocketAddr>()?;
-    
+
     tracing::info!("Storage node listening on {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, node.router()).await?;
-    
+
     // Graceful shutdown
     node.stop_background_tasks().await?;
-    
+
     Ok(())
 }
 

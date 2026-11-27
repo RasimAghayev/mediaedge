@@ -14,13 +14,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use axum::{
+    Router,
     body::Body,
     extract::{ConnectInfo, Path, Query, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, Uri},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post, put, delete},
-    Router,
+    routing::{delete, get, post, put},
 };
 use axum_server::Handle;
 use dashmap::DashMap;
@@ -29,7 +29,7 @@ use futures::StreamExt;
 use opendal::{Operator, layers::LoggingLayer};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, mpsc};
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig as RustlsServerConfig};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -40,19 +40,24 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use mediaedge_api::{
-    openapi::{api_doc, create_openapi_router, OpenApiConfig, BitratePreset, JobPriority, TranscodeStatus},
-    rate_limit::{RateLimitConfig, RateLimitMiddleware},
-    validation::{ValidationMiddleware, ValidatedJson, ValidatedQuery},
     ApiMiddlewareConfig, ApiVersion, VersioningMiddleware,
+    openapi::{
+        BitratePreset, JobPriority, OpenApiConfig, TranscodeStatus, api_doc, create_openapi_router,
+    },
+    rate_limit::{RateLimitConfig, RateLimitMiddleware},
+    validation::{ValidatedJson, ValidatedQuery, ValidationMiddleware},
 };
 use mediaedge_config::{
-    loader,
-    types::{AiConfig, ArchiveConfig, AuthConfig, CaptionConfig, MediaProcessorConfig, RecordingConfig, RecordingSchedule, ServerConfig, SpriteConfig, StorageConfig, ThumbnailConfig, TlsConfig, TranscodingConfig, VodConfig},
-    ArcSwapConfig,
+    ArcSwapConfig, loader,
+    types::{
+        AiConfig, ArchiveConfig, AuthConfig, CaptionConfig, MediaProcessorConfig, RecordingConfig,
+        RecordingSchedule, ServerConfig, SpriteConfig, StorageConfig, ThumbnailConfig, TlsConfig,
+        TranscodingConfig, VodConfig,
+    },
 };
 use mediaedge_core::cluster::ClusterManager;
 use mediaedge_events::{Event, EventPublisher};
-use mediaedge_media::transcode::{TranscodePipeline, TranscodeOptions, HardwareAccel};
+use mediaedge_media::transcode::{HardwareAccel, TranscodeOptions, TranscodePipeline};
 use mediaedge_observability::{MetricsRegistry, TracingHandle};
 
 // ============================================================================
@@ -156,7 +161,12 @@ pub struct AuthContext {
 
 impl ProcessorState {
     /// Create a new processor state.
-    pub async fn new(config: MediaProcessorConfig, cluster: Arc<ClusterManager>, metrics: Arc<MetricsRegistry>, event_publisher: Arc<EventPublisher>) -> Result<(Self, mpsc::UnboundedReceiver<()>)> {
+    pub async fn new(
+        config: MediaProcessorConfig,
+        cluster: Arc<ClusterManager>,
+        metrics: Arc<MetricsRegistry>,
+        event_publisher: Arc<EventPublisher>,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<()>)> {
         let http_client = HttpClient::builder()
             .timeout(Duration::from_secs(config.server.request_timeout_secs))
             .build()?;
@@ -215,7 +225,7 @@ impl ProcessorState {
     pub async fn submit_transcode_job(&self, job: TranscodeJob) -> Result<String> {
         let job_id = job.id.clone();
         self.job_queue.insert(job_id.clone(), job);
-        
+
         // Spawn worker
         let state = self.clone();
         tokio::spawn(async move {
@@ -252,24 +262,43 @@ impl ProcessorState {
         };
 
         // Run transcode
-        let preset = self.config().transcoding.presets.iter()
+        let preset = self
+            .config()
+            .transcoding
+            .presets
+            .iter()
             .find(|p| p.name == job.preset)
             .cloned();
 
         let options = TranscodeOptions {
             input_path: job.input_path.clone(),
             output_paths: job.output_paths.clone(),
-            video_codec: preset.as_ref().map(|p| p.video_codec.clone()).unwrap_or_else(|| self.config().transcoding.default_video_codec.clone()),
-            audio_codec: preset.as_ref().map(|p| p.audio_codec.clone()).unwrap_or_else(|| self.config().transcoding.default_audio_codec.clone()),
-            video_bitrate: preset.as_ref().map(|p| p.video_bitrate_kbps * 1000).unwrap_or(5_000_000),
-            audio_bitrate: preset.as_ref().map(|p| p.audio_bitrate_kbps * 1000).unwrap_or(128_000),
+            video_codec: preset
+                .as_ref()
+                .map(|p| p.video_codec.clone())
+                .unwrap_or_else(|| self.config().transcoding.default_video_codec.clone()),
+            audio_codec: preset
+                .as_ref()
+                .map(|p| p.audio_codec.clone())
+                .unwrap_or_else(|| self.config().transcoding.default_audio_codec.clone()),
+            video_bitrate: preset
+                .as_ref()
+                .map(|p| p.video_bitrate_kbps * 1000)
+                .unwrap_or(5_000_000),
+            audio_bitrate: preset
+                .as_ref()
+                .map(|p| p.audio_bitrate_kbps * 1000)
+                .unwrap_or(128_000),
             resolution: preset.as_ref().map(|p| p.resolution.clone()),
             framerate: preset.as_ref().map(|p| p.framerate).unwrap_or(30),
             hwaccel: parse_hwaccel(&self.config().transcoding.hwaccel),
             gpu_device: self.config().transcoding.gpu_device,
         };
 
-        let result = self.transcode_pipeline.transcode(options, progress_callback).await;
+        let result = self
+            .transcode_pipeline
+            .transcode(options, progress_callback)
+            .await;
 
         // Update job status
         if let Some(mut job) = self.job_queue.get_mut(&job_id) {
@@ -278,25 +307,31 @@ impl ProcessorState {
                     job.status = TranscodeStatus::Completed;
                     job.progress_pct = 100.0;
                     job.completed_at = Some(chrono::Utc::now());
-                    
+
                     // Publish completion event
-                    let _ = self.event_publisher.publish(Event::TranscodeCompleted {
-                        job_id: job_id.clone(),
-                        stream_id: job.stream_id.clone(),
-                        outputs: job.output_paths.clone(),
-                    }).await;
+                    let _ = self
+                        .event_publisher
+                        .publish(Event::TranscodeCompleted {
+                            job_id: job_id.clone(),
+                            stream_id: job.stream_id.clone(),
+                            outputs: job.output_paths.clone(),
+                        })
+                        .await;
                 }
                 Err(e) => {
                     job.status = TranscodeStatus::Failed;
                     job.error = Some(e.to_string());
                     job.completed_at = Some(chrono::Utc::now());
-                    
+
                     // Publish failure event
-                    let _ = self.event_publisher.publish(Event::TranscodeFailed {
-                        job_id: job_id.clone(),
-                        stream_id: job.stream_id.clone(),
-                        error: e.to_string(),
-                    }).await;
+                    let _ = self
+                        .event_publisher
+                        .publish(Event::TranscodeFailed {
+                            job_id: job_id.clone(),
+                            stream_id: job.stream_id.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
                 }
             }
         }
@@ -320,7 +355,10 @@ impl ProcessorState {
 
         // Parse cron and schedule
         // In production, use a proper cron scheduler
-        info!("Scheduled recording: {} for stream {}", job_id, schedule.stream);
+        info!(
+            "Scheduled recording: {} for stream {}",
+            job_id, schedule.stream
+        );
 
         Ok(job_id)
     }
@@ -328,16 +366,19 @@ impl ProcessorState {
     /// Start recording for a stream.
     pub async fn start_recording(&self, stream_id: &str, output_path: &str) -> Result<String> {
         let recording_id = Uuid::new_v4().to_string();
-        
+
         // Implementation would start FFmpeg recording
         // This is a placeholder
-        
+
         // Publish recording started event
-        let _ = self.event_publisher.publish(Event::RecordingStarted {
-            recording_id: recording_id.clone(),
-            stream_id: stream_id.to_string(),
-            output_path: output_path.to_string(),
-        }).await;
+        let _ = self
+            .event_publisher
+            .publish(Event::RecordingStarted {
+                recording_id: recording_id.clone(),
+                stream_id: stream_id.to_string(),
+                output_path: output_path.to_string(),
+            })
+            .await;
 
         Ok(recording_id)
     }
@@ -345,40 +386,61 @@ impl ProcessorState {
     /// Stop recording.
     pub async fn stop_recording(&self, recording_id: &str) -> Result<()> {
         // Implementation would stop FFmpeg recording
-        
+
         // Publish recording completed event
-        let _ = self.event_publisher.publish(Event::RecordingCompleted {
-            recording_id: recording_id.to_string(),
-        }).await;
+        let _ = self
+            .event_publisher
+            .publish(Event::RecordingCompleted {
+                recording_id: recording_id.to_string(),
+            })
+            .await;
 
         Ok(())
     }
 
     /// Generate thumbnails for VOD.
-    pub async fn generate_thumbnails(&self, input_path: &str, output_dir: &str, config: &ThumbnailConfig) -> Result<Vec<String>> {
+    pub async fn generate_thumbnails(
+        &self,
+        input_path: &str,
+        output_dir: &str,
+        config: &ThumbnailConfig,
+    ) -> Result<Vec<String>> {
         // Use ffmpeg to extract thumbnails
         let mut thumbnails = Vec::new();
-        
+
         // Implementation would use ffmpeg-next to extract frames
         // For now, return empty
-        
+
         Ok(thumbnails)
     }
 
     /// Generate sprite sheet for VOD.
-    pub async fn generate_sprites(&self, input_path: &str, output_dir: &str, config: &SpriteConfig) -> Result<String> {
+    pub async fn generate_sprites(
+        &self,
+        input_path: &str,
+        output_dir: &str,
+        config: &SpriteConfig,
+    ) -> Result<String> {
         // Implementation would generate sprite sheet
         Ok("".to_string())
     }
 
     /// Generate captions using AI.
-    pub async fn generate_captions(&self, input_path: &str, config: &CaptionConfig) -> Result<String> {
+    pub async fn generate_captions(
+        &self,
+        input_path: &str,
+        config: &CaptionConfig,
+    ) -> Result<String> {
         // Implementation would use Whisper or cloud AI
         Ok("".to_string())
     }
 
     /// Push to cloud (YouTube, Twitch, custom RTMP/SRT).
-    pub async fn push_to_cloud(&self, stream_id: &str, destination: &CloudDestination) -> Result<()> {
+    pub async fn push_to_cloud(
+        &self,
+        stream_id: &str,
+        destination: &CloudDestination,
+    ) -> Result<()> {
         // Implementation would use FFmpeg to push
         Ok(())
     }
@@ -443,8 +505,7 @@ async fn build_storage_operator(config: &StorageConfig) -> Result<Operator> {
         }
         "gcs" => {
             let gcs_config = config.gcs.as_ref().context("GCS config required")?;
-            let mut b = opendal::services::Gcs::default()
-                .bucket(&gcs_config.bucket);
+            let mut b = opendal::services::Gcs::default().bucket(&gcs_config.bucket);
             if let Some(creds) = &gcs_config.credentials_file {
                 b = b.credentials_file(creds);
             }
@@ -455,13 +516,14 @@ async fn build_storage_operator(config: &StorageConfig) -> Result<Operator> {
         }
         "memory" => {
             let mem_config = config.memory.as_ref().unwrap_or(&Default::default());
-            opendal::services::Memory::default()
-                .max_size(mem_config.max_size)
+            opendal::services::Memory::default().max_size(mem_config.max_size)
         }
         _ => anyhow::bail!("Unknown storage backend: {}", config.backend),
     };
 
-    let op = Operator::new(builder)?.layer(LoggingLayer::default()).finish();
+    let op = Operator::new(builder)?
+        .layer(LoggingLayer::default())
+        .finish();
     Ok(op)
 }
 
@@ -497,10 +559,14 @@ async fn submit_transcode(
     };
 
     match state.submit_transcode_job(job.clone()).await {
-        Ok(job_id) => (StatusCode::ACCEPTED, axum::Json(serde_json::json!({
-            "job_id": job_id,
-            "status": "queued"
-        }))).into_response(),
+        Ok(job_id) => (
+            StatusCode::ACCEPTED,
+            axum::Json(serde_json::json!({
+                "job_id": job_id,
+                "status": "queued"
+            })),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to submit transcode job: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to submit job").into_response()
@@ -528,9 +594,12 @@ async fn list_transcode_jobs(
     auth: AuthContext,
     Query(pagination): Query<PaginationParams>,
 ) -> impl IntoResponse {
-    let jobs: Vec<TranscodeJob> = state.job_queue
+    let jobs: Vec<TranscodeJob> = state
+        .job_queue
         .iter()
-        .filter(|entry| entry.value().tenant_id == auth.tenant_id || auth.roles.contains(&"admin".to_string()))
+        .filter(|entry| {
+            entry.value().tenant_id == auth.tenant_id || auth.roles.contains(&"admin".to_string())
+        })
         .map(|entry| entry.value().clone())
         .collect();
 
@@ -545,9 +614,11 @@ async fn list_transcode_jobs(
             page: pagination.page,
             per_page: pagination.per_page,
             total,
-            total_pages: ((total + pagination.per_page as u64 - 1) / pagination.per_page as u64).max(1) as u32,
+            total_pages: ((total + pagination.per_page as u64 - 1) / pagination.per_page as u64)
+                .max(1) as u32,
         },
-    }).into_response()
+    })
+    .into_response()
 }
 
 /// Schedule recording.
@@ -557,13 +628,21 @@ async fn schedule_recording(
     ValidatedJson(payload): ValidatedJson<RecordingSchedule>,
 ) -> impl IntoResponse {
     match state.schedule_recording(payload).await {
-        Ok(job_id) => (StatusCode::CREATED, axum::Json(serde_json::json!({
-            "job_id": job_id,
-            "status": "scheduled"
-        }))).into_response(),
+        Ok(job_id) => (
+            StatusCode::CREATED,
+            axum::Json(serde_json::json!({
+                "job_id": job_id,
+                "status": "scheduled"
+            })),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to schedule recording: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to schedule recording").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to schedule recording",
+            )
+                .into_response()
         }
     }
 }
@@ -574,14 +653,25 @@ async fn start_recording_endpoint(
     auth: AuthContext,
     ValidatedJson(payload): ValidatedJson<StartRecordingRequest>,
 ) -> impl IntoResponse {
-    match state.start_recording(&payload.stream_id, &payload.output_path).await {
-        Ok(recording_id) => (StatusCode::OK, axum::Json(serde_json::json!({
-            "recording_id": recording_id,
-            "status": "recording"
-        }))).into_response(),
+    match state
+        .start_recording(&payload.stream_id, &payload.output_path)
+        .await
+    {
+        Ok(recording_id) => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({
+                "recording_id": recording_id,
+                "status": "recording"
+            })),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to start recording: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to start recording").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to start recording",
+            )
+                .into_response()
         }
     }
 }
@@ -593,12 +683,20 @@ async fn stop_recording_endpoint(
     Path(recording_id): Path<String>,
 ) -> impl IntoResponse {
     match state.stop_recording(&recording_id).await {
-        Ok(_) => (StatusCode::OK, axum::Json(serde_json::json!({
-            "status": "stopped"
-        }))).into_response(),
+        Ok(_) => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({
+                "status": "stopped"
+            })),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to stop recording: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to stop recording").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to stop recording",
+            )
+                .into_response()
         }
     }
 }
@@ -613,21 +711,38 @@ async fn generate_vod_assets(
 
     // Generate thumbnails
     let thumbnails = if config.vod.thumbnails.enabled {
-        state.generate_thumbnails(&payload.input_path, &payload.output_dir, &config.vod.thumbnails).await.unwrap_or_default()
+        state
+            .generate_thumbnails(
+                &payload.input_path,
+                &payload.output_dir,
+                &config.vod.thumbnails,
+            )
+            .await
+            .unwrap_or_default()
     } else {
         vec![]
     };
 
     // Generate sprites
     let sprites = if config.vod.sprites.enabled {
-        state.generate_sprites(&payload.input_path, &payload.output_dir, &config.vod.sprites).await.unwrap_or_default()
+        state
+            .generate_sprites(
+                &payload.input_path,
+                &payload.output_dir,
+                &config.vod.sprites,
+            )
+            .await
+            .unwrap_or_default()
     } else {
         "".to_string()
     };
 
     // Generate captions
     let captions = if config.vod.captions.enabled {
-        state.generate_captions(&payload.input_path, &config.vod.captions).await.unwrap_or_default()
+        state
+            .generate_captions(&payload.input_path, &config.vod.captions)
+            .await
+            .unwrap_or_default()
     } else {
         "".to_string()
     };
@@ -636,7 +751,8 @@ async fn generate_vod_assets(
         "thumbnails": thumbnails,
         "sprites": sprites,
         "captions": captions,
-    })).into_response()
+    }))
+    .into_response()
 }
 
 /// Push to cloud destination.
@@ -653,9 +769,13 @@ async fn push_to_cloud_endpoint(
     };
 
     match state.push_to_cloud(&payload.stream_id, &destination).await {
-        Ok(_) => (StatusCode::OK, axum::Json(serde_json::json!({
-            "status": "pushing"
-        }))).into_response(),
+        Ok(_) => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({
+                "status": "pushing"
+            })),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to push to cloud: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to push to cloud").into_response()
@@ -666,9 +786,12 @@ async fn push_to_cloud_endpoint(
 /// Config reload endpoint.
 async fn config_reload(State(state): State<ProcessorState>) -> impl IntoResponse {
     let _ = state.reload_tx.send(());
-    (StatusCode::OK, axum::Json(serde_json::json!({
-        "status": "ok"
-    })))
+    (
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "status": "ok"
+        })),
+    )
 }
 
 /// Get config version.
@@ -729,8 +852,12 @@ pub struct PaginationParams {
     pub per_page: u32,
 }
 
-fn default_page() -> u32 { 1 }
-fn default_page_size() -> u32 { 50 }
+fn default_page() -> u32 {
+    1
+}
+fn default_page_size() -> u32 {
+    50
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PaginatedResponse<T> {
@@ -797,9 +924,10 @@ async fn rate_limit_middleware(
     next: Next,
 ) -> Response {
     // Rate limiting for processor API
-    let key = auth.map(|a| format!("tenant:{}", a.tenant_id))
+    let key = auth
+        .map(|a| format!("tenant:{}", a.tenant_id))
         .unwrap_or_else(|| format!("ip:{}", addr.ip()));
-    
+
     let quota = Quota::per_minute(1000);
     let limiter = state.get_rate_limiter(&key, quota);
 
@@ -807,10 +935,9 @@ async fn rate_limit_middleware(
         Ok(_) => next.run(request).await,
         Err(_) => {
             let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
-            response.headers_mut().insert(
-                "Retry-After",
-                HeaderValue::from_str("60").unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert("Retry-After", HeaderValue::from_str("60").unwrap());
             response
         }
     }
@@ -818,7 +945,17 @@ async fn rate_limit_middleware(
 
 // Add get_rate_limiter to ProcessorState
 impl ProcessorState {
-    fn get_rate_limiter(&self, key: &str, quota: Quota) -> Arc<RateLimiter<std::sync::Mutex<governor::state::NotKeyed>, governor::state::InMemoryState, governor::clock::DefaultClock>> {
+    fn get_rate_limiter(
+        &self,
+        key: &str,
+        quota: Quota,
+    ) -> Arc<
+        RateLimiter<
+            std::sync::Mutex<governor::state::NotKeyed>,
+            governor::state::InMemoryState,
+            governor::clock::DefaultClock,
+        >,
+    > {
         self.job_queue // reuse dashmap for rate limiters
             .entry(key.to_string())
             .or_insert_with(|| {
@@ -840,7 +977,7 @@ impl ProcessorState {
                     tenant_id: "".to_string(),
                 }
             });
-        
+
         // Create a proper rate limiter
         Arc::new(RateLimiter::direct(quota))
     }
@@ -850,10 +987,7 @@ impl ProcessorState {
 // Config Hot Reload
 // ============================================================================
 
-async fn config_reload_watcher(
-    mut reload_rx: mpsc::UnboundedReceiver<()>,
-    state: ProcessorState,
-) {
+async fn config_reload_watcher(mut reload_rx: mpsc::UnboundedReceiver<()>, state: ProcessorState) {
     while reload_rx.recv().await.is_some() {
         info!("Config reload triggered");
 
@@ -872,7 +1006,7 @@ async fn config_reload_watcher(
 fn setup_signal_handlers(reload_tx: mpsc::UnboundedSender<()>) {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut sighup = signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
         tokio::spawn(async move {
             while sighup.recv().await.is_some() {
@@ -887,10 +1021,8 @@ fn setup_signal_handlers(reload_tx: mpsc::UnboundedSender<()>) {
 // ============================================================================
 
 fn build_tls_config(tls_config: &TlsConfig) -> Result<RustlsServerConfig> {
-    let cert_file = std::fs::read(&tls_config.cert_file)
-        .context("Failed to read cert file")?;
-    let key_file = std::fs::read(&tls_config.key_file)
-        .context("Failed to read key file")?;
+    let cert_file = std::fs::read(&tls_config.cert_file).context("Failed to read cert file")?;
+    let key_file = std::fs::read(&tls_config.key_file).context("Failed to read key file")?;
 
     let certs = rustls_pemfile::certs(&mut std::io::BufReader::new(&cert_file[..]))
         .collect::<Result<Vec<_>, _>>()?;
@@ -947,10 +1079,20 @@ async fn main() -> Result<()> {
     let cluster = core_service.cluster();
 
     // Initialize event publisher
-    let event_publisher = Arc::new(EventPublisher::new(config.nats.as_ref().map(|c| c.urls.clone()).unwrap_or_default()).await?);
+    let event_publisher = Arc::new(
+        EventPublisher::new(
+            config
+                .nats
+                .as_ref()
+                .map(|c| c.urls.clone())
+                .unwrap_or_default(),
+        )
+        .await?,
+    );
 
     // Create processor state
-    let (state, reload_rx) = ProcessorState::new(config.clone(), cluster, metrics.clone(), event_publisher).await?;
+    let (state, reload_rx) =
+        ProcessorState::new(config.clone(), cluster, metrics.clone(), event_publisher).await?;
 
     // Start config reload watcher
     let state_clone = state.clone();
@@ -967,7 +1109,12 @@ async fn main() -> Result<()> {
     let app = build_router(state.clone()).await;
 
     // Build TLS config if needed
-    let tls_config = config.server.tls.as_ref().map(build_tls_config).transpose()?;
+    let tls_config = config
+        .server
+        .tls
+        .as_ref()
+        .map(build_tls_config)
+        .transpose()?;
 
     // Start HTTP server
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
@@ -997,20 +1144,23 @@ async fn main() -> Result<()> {
 /// Scheduled recording worker - checks for recordings to start.
 async fn scheduled_recording_worker(state: ProcessorState) {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
-    
+
     loop {
         interval.tick().await;
-        
+
         let now = chrono::Utc::now();
         let config = state.config();
-        
+
         for entry in state.scheduled_recordings.iter() {
             let job = entry.value();
-            
+
             // Check if it's time to start (simplified - real impl would use cron)
             if job.status == RecordingStatus::Scheduled {
                 // In production, check cron expression against current time
-                info!("Would start scheduled recording: {} for stream {}", job.id, job.stream_id);
+                info!(
+                    "Would start scheduled recording: {} for stream {}",
+                    job.id, job.stream_id
+                );
             }
         }
     }
@@ -1037,16 +1187,23 @@ async fn build_router(state: ProcessorState) -> Router {
     // Middleware stack
     let middleware_stack = ServiceBuilder::new()
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any))
-        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Public routes
-    let public_routes = Router::new()
-        .route("/health", get(health_check));
+    let public_routes = Router::new().route("/health", get(health_check));
 
     // Protected routes
     let protected_routes = Router::new()
@@ -1055,7 +1212,10 @@ async fn build_router(state: ProcessorState) -> Router {
         .route("/api/v1/transcode", get(list_transcode_jobs))
         .route("/api/v1/recordings/schedule", post(schedule_recording))
         .route("/api/v1/recordings/start", post(start_recording_endpoint))
-        .route("/api/v1/recordings/:recording_id/stop", post(stop_recording_endpoint))
+        .route(
+            "/api/v1/recordings/:recording_id/stop",
+            post(stop_recording_endpoint),
+        )
         .route("/api/v1/vod/generate", post(generate_vod_assets))
         .route("/api/v1/egress/push", post(push_to_cloud_endpoint));
 
@@ -1096,10 +1256,11 @@ async fn auth_middleware(
 
     // Skip auth for public endpoints
     let path = request.uri().path();
-    if path == "/health" 
-        || path == "/metrics" 
-        || path.starts_with("/api/docs") 
-        || path == "/api/openapi.json" {
+    if path == "/health"
+        || path == "/metrics"
+        || path.starts_with("/api/docs")
+        || path == "/api/openapi.json"
+    {
         return next.run(request).await;
     }
 

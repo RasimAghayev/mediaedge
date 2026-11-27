@@ -13,13 +13,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use axum::{
+    Router,
     body::Body,
     extract::{ConnectInfo, Path, Query, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, Uri},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, head, post},
-    Router,
 };
 use axum_server::Handle;
 use dashmap::DashMap;
@@ -31,7 +31,7 @@ use opendal::{Operator, layers::LoggingLayer};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig as RustlsServerConfig};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -42,15 +42,20 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use mediaedge_api::{
-    openapi::{api_doc, create_openapi_router, OpenApiConfig, SignedUrlRequest, SignedUrlResponse, EgressProtocol},
-    rate_limit::{RateLimitConfig, RateLimitMiddleware},
-    validation::{ValidationMiddleware, ValidatedJson, ValidatedQuery},
     ApiMiddlewareConfig, ApiVersion, VersioningMiddleware,
+    openapi::{
+        EgressProtocol, OpenApiConfig, SignedUrlRequest, SignedUrlResponse, api_doc,
+        create_openapi_router,
+    },
+    rate_limit::{RateLimitConfig, RateLimitMiddleware},
+    validation::{ValidatedJson, ValidatedQuery, ValidationMiddleware},
 };
 use mediaedge_config::{
-    loader,
-    types::{AuthConfig, AuthMode, EdgeCacheConfig, EdgeNodeConfig, OriginConfig, ServerConfig, SignedUrlConfig, StorageConfig, TlsConfig},
-    ArcSwapConfig,
+    ArcSwapConfig, loader,
+    types::{
+        AuthConfig, AuthMode, EdgeCacheConfig, EdgeNodeConfig, OriginConfig, ServerConfig,
+        SignedUrlConfig, StorageConfig, TlsConfig,
+    },
 };
 use mediaedge_core::cluster::ClusterManager;
 use mediaedge_edge::{cache::CacheBackend, sync::SyncManager};
@@ -93,7 +98,18 @@ pub struct EdgeState {
     pub metrics: Arc<MetricsRegistry>,
 
     /// Rate limiters per tenant/IP.
-    pub rate_limiters: Arc<DashMap<String, Arc<RateLimiter<std::sync::Mutex<governor::state::NotKeyed>, governor::state::InMemoryState, governor::clock::DefaultClock>>>>,
+    pub rate_limiters: Arc<
+        DashMap<
+            String,
+            Arc<
+                RateLimiter<
+                    std::sync::Mutex<governor::state::NotKeyed>,
+                    governor::state::InMemoryState,
+                    governor::clock::DefaultClock,
+                >,
+            >,
+        >,
+    >,
 
     /// Config reload channel.
     pub reload_tx: mpsc::UnboundedSender<()>,
@@ -154,7 +170,11 @@ pub struct AuthContext {
 
 impl EdgeState {
     /// Create a new edge state.
-    pub async fn new(config: EdgeNodeConfig, cluster: Arc<ClusterManager>, metrics: Arc<MetricsRegistry>) -> Result<(Self, mpsc::UnboundedReceiver<()>)> {
+    pub async fn new(
+        config: EdgeNodeConfig,
+        cluster: Arc<ClusterManager>,
+        metrics: Arc<MetricsRegistry>,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<()>)> {
         let http_client = HttpClient::builder()
             .timeout(Duration::from_secs(config.server.request_timeout_secs))
             .build()?;
@@ -224,7 +244,17 @@ impl EdgeState {
     }
 
     /// Get or create rate limiter for a key.
-    pub fn get_rate_limiter(&self, key: &str, quota: Quota) -> Arc<RateLimiter<std::sync::Mutex<governor::state::NotKeyed>, governor::state::InMemoryState, governor::clock::DefaultClock>> {
+    pub fn get_rate_limiter(
+        &self,
+        key: &str,
+        quota: Quota,
+    ) -> Arc<
+        RateLimiter<
+            std::sync::Mutex<governor::state::NotKeyed>,
+            governor::state::InMemoryState,
+            governor::clock::DefaultClock,
+        >,
+    > {
         self.rate_limiters
             .entry(key.to_string())
             .or_insert_with(|| Arc::new(RateLimiter::direct(quota)))
@@ -232,11 +262,16 @@ impl EdgeState {
     }
 
     /// Generate signed URL.
-    pub async fn generate_signed_url(&self, request: SignedUrlRequest) -> Result<SignedUrlResponse> {
+    pub async fn generate_signed_url(
+        &self,
+        request: SignedUrlRequest,
+    ) -> Result<SignedUrlResponse> {
         let config = self.config();
         let key = self.signed_url_key.read().await;
 
-        let signing_key = key.as_ref().ok_or_else(|| anyhow::anyhow!("Signed URL key not configured"))?;
+        let signing_key = key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Signed URL key not configured"))?;
 
         let now = chrono::Utc::now().timestamp();
         let exp = now + request.ttl_secs as i64;
@@ -257,28 +292,48 @@ impl EdgeState {
         )?;
 
         // Build playback URL based on protocol
-        let base_url = config.origin.urls.first()
+        let base_url = config
+            .origin
+            .urls
+            .first()
             .ok_or_else(|| anyhow::anyhow!("No origin configured"))?;
         let url = match request.protocol {
-            EgressProtocol::Hls => format!("{}/hls/{}/playlist.m3u8?token={}", base_url, request.stream_id, token),
-            EgressProtocol::Dash => format!("{}/dash/{}/manifest.mpd?token={}", base_url, request.stream_id, token),
-            EgressProtocol::Whep => format!("{}/whep/{}?token={}", base_url, request.stream_id, token),
-            EgressProtocol::Moq => format!("{}/moq/{}?token={}", base_url, request.stream_id, token),
+            EgressProtocol::Hls => format!(
+                "{}/hls/{}/playlist.m3u8?token={}",
+                base_url, request.stream_id, token
+            ),
+            EgressProtocol::Dash => format!(
+                "{}/dash/{}/manifest.mpd?token={}",
+                base_url, request.stream_id, token
+            ),
+            EgressProtocol::Whep => {
+                format!("{}/whep/{}?token={}", base_url, request.stream_id, token)
+            }
+            EgressProtocol::Moq => {
+                format!("{}/moq/{}?token={}", base_url, request.stream_id, token)
+            }
             EgressProtocol::Ws => format!("{}/ws/{}?token={}", base_url, request.stream_id, token),
             _ => format!("{}/{}?token={}", base_url, request.stream_id, token),
         };
 
         Ok(SignedUrlResponse {
             url,
-            expires_at: chrono::DateTime::from_timestamp(exp, 0).unwrap_or_else(|| chrono::Utc::now()),
+            expires_at: chrono::DateTime::from_timestamp(exp, 0)
+                .unwrap_or_else(|| chrono::Utc::now()),
             signature: token,
         })
     }
 
     /// Validate signed URL token.
-    pub async fn validate_signed_url(&self, token: &str, client_ip: Option<std::net::IpAddr>) -> Result<SignedUrlClaims> {
+    pub async fn validate_signed_url(
+        &self,
+        token: &str,
+        client_ip: Option<std::net::IpAddr>,
+    ) -> Result<SignedUrlClaims> {
         let key = self.signed_url_key.read().await;
-        let signing_key = key.as_ref().ok_or_else(|| anyhow::anyhow!("Signed URL key not configured"))?;
+        let signing_key = key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Signed URL key not configured"))?;
 
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
@@ -295,7 +350,9 @@ impl EdgeState {
         if let Some(whitelist) = &claims.ip_whitelist {
             if let Some(ip) = client_ip {
                 let allowed = whitelist.iter().any(|cidr| {
-                    cidr.parse::<ipnet::IpNet>().map(|net| net.contains(ip)).unwrap_or(false)
+                    cidr.parse::<ipnet::IpNet>()
+                        .map(|net| net.contains(ip))
+                        .unwrap_or(false)
                 });
                 if !allowed {
                     return Err(anyhow::anyhow!("IP not allowed"));
@@ -345,8 +402,7 @@ async fn build_storage_operator(config: &StorageConfig) -> Result<Operator> {
         }
         "gcs" => {
             let gcs_config = config.gcs.as_ref().context("GCS config required")?;
-            let mut b = opendal::services::Gcs::default()
-                .bucket(&gcs_config.bucket);
+            let mut b = opendal::services::Gcs::default().bucket(&gcs_config.bucket);
             if let Some(creds) = &gcs_config.credentials_file {
                 b = b.credentials_file(creds);
             }
@@ -357,13 +413,14 @@ async fn build_storage_operator(config: &StorageConfig) -> Result<Operator> {
         }
         "memory" => {
             let mem_config = config.memory.as_ref().unwrap_or(&Default::default());
-            opendal::services::Memory::default()
-                .max_size(mem_config.max_size)
+            opendal::services::Memory::default().max_size(mem_config.max_size)
         }
         _ => anyhow::bail!("Unknown storage backend: {}", config.backend),
     };
 
-    let op = Operator::new(builder)?.layer(LoggingLayer::default()).finish();
+    let op = Operator::new(builder)?
+        .layer(LoggingLayer::default())
+        .finish();
     Ok(op)
 }
 
@@ -398,11 +455,17 @@ async fn get_segment(
             etag: meta.etag().unwrap_or_default().to_string(),
             last_modified: meta.last_modified().unwrap_or_else(chrono::Utc::now),
             tier: StorageTier::Hot,
-            tenant_id: auth.as_ref().map(|a| a.tenant_id.clone()).unwrap_or_else(|| "default".to_string()),
+            tenant_id: auth
+                .as_ref()
+                .map(|a| a.tenant_id.clone())
+                .unwrap_or_else(|| "default".to_string()),
         };
 
         // Promote to memory cache
-        state.memory_cache.insert(cache_key.clone(), cached.clone()).await;
+        state
+            .memory_cache
+            .insert(cache_key.clone(), cached.clone())
+            .await;
 
         return build_segment_response(&cached, &headers, false);
     }
@@ -415,7 +478,10 @@ async fn get_segment(
             let _ = state.warming_queue.send(WarmingTask {
                 stream_id: stream_id.clone(),
                 segment_path: segment_path.clone(),
-                tenant_id: auth.as_ref().map(|a| a.tenant_id.clone()).unwrap_or_else(|| "default".to_string()),
+                tenant_id: auth
+                    .as_ref()
+                    .map(|a| a.tenant_id.clone())
+                    .unwrap_or_else(|| "default".to_string()),
                 priority: 0,
             });
         }
@@ -426,13 +492,27 @@ async fn get_segment(
 }
 
 /// Build segment response with proper headers.
-fn build_segment_response(cached: &CachedSegment, request_headers: &HeaderMap, from_memory: bool) -> Response {
+fn build_segment_response(
+    cached: &CachedSegment,
+    request_headers: &HeaderMap,
+    from_memory: bool,
+) -> Response {
     let mut response = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", &cached.content_type)
         .header("ETag", &cached.etag)
-        .header("Cache-Control", "public, max-age=300, stale-while-revalidate=60")
-        .header("X-Cache", if from_memory { "HIT-MEMORY" } else { "HIT-DISK" })
+        .header(
+            "Cache-Control",
+            "public, max-age=300, stale-while-revalidate=60",
+        )
+        .header(
+            "X-Cache",
+            if from_memory {
+                "HIT-MEMORY"
+            } else {
+                "HIT-DISK"
+            },
+        )
         .header("X-Cache-Tier", format!("{:?}", cached.tier));
 
     // Handle range requests
@@ -442,7 +522,10 @@ fn build_segment_response(cached: &CachedSegment, request_headers: &HeaderMap, f
                 let slice = &cached.data[start..=end];
                 response = response
                     .status(StatusCode::PARTIAL_CONTENT)
-                    .header("Content-Range", format!("bytes {}-{}/{}", start, end, cached.data.len()))
+                    .header(
+                        "Content-Range",
+                        format!("bytes {}-{}/{}", start, end, cached.data.len()),
+                    )
                     .header("Content-Length", slice.len())
                     .body(Body::from(slice.to_vec()))
                     .unwrap();
@@ -509,7 +592,12 @@ async fn fetch_from_origin(
 
     // Try each origin URL
     for origin_url in &config.origin.urls {
-        let url = format!("{}/{}/{}", origin_url.trim_end_matches('/'), stream_id, segment_path);
+        let url = format!(
+            "{}/{}/{}",
+            origin_url.trim_end_matches('/'),
+            stream_id,
+            segment_path
+        );
 
         let mut request = state.http_client.get(&url);
 
@@ -524,19 +612,22 @@ async fn fetch_from_origin(
         match request.send().await {
             Ok(response) => {
                 if response.status().is_success() {
-                    let content_type = response.headers()
+                    let content_type = response
+                        .headers()
                         .get("content-type")
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("application/octet-stream")
                         .to_string();
 
-                    let etag = response.headers()
+                    let etag = response
+                        .headers()
                         .get("etag")
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("")
                         .to_string();
 
-                    let last_modified = response.headers()
+                    let last_modified = response
+                        .headers()
                         .get("last-modified")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|v| chrono::DateTime::parse_from_rfc2822(v).ok())
@@ -589,10 +680,7 @@ async fn fetch_from_origin(
 }
 
 /// Cache warming worker.
-async fn warming_worker(
-    state: EdgeState,
-    mut warming_rx: mpsc::UnboundedReceiver<WarmingTask>,
-) {
+async fn warming_worker(state: EdgeState, mut warming_rx: mpsc::UnboundedReceiver<WarmingTask>) {
     while let Some(task) = warming_rx.recv().await {
         let cache_key = format!("{}:{}", task.stream_id, task.segment_path);
 
@@ -603,7 +691,13 @@ async fn warming_worker(
         }
 
         // Fetch from origin
-        let _ = fetch_from_origin(state.clone(), &task.stream_id, &task.segment_path, &HeaderMap::new()).await;
+        let _ = fetch_from_origin(
+            state.clone(),
+            &task.stream_id,
+            &task.segment_path,
+            &HeaderMap::new(),
+        )
+        .await;
     }
 }
 
@@ -621,7 +715,11 @@ async fn create_signed_url_endpoint(
         Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
         Err(e) => {
             error!("Signed URL generation failed: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to generate signed URL").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to generate signed URL",
+            )
+                .into_response()
         }
     }
 }
@@ -639,11 +737,13 @@ async fn validate_signed_url_endpoint(
         Ok(claims) => axum::Json(serde_json::json!({
             "valid": true,
             "claims": claims
-        })).into_response(),
+        }))
+        .into_response(),
         Err(e) => axum::Json(serde_json::json!({
             "valid": false,
             "error": e.to_string()
-        })).into_response(),
+        }))
+        .into_response(),
     }
 }
 
@@ -660,7 +760,8 @@ async fn purge_stream_cache(
     let config = state.config();
 
     // Remove from memory cache
-    let keys_to_remove: Vec<String> = state.memory_cache
+    let keys_to_remove: Vec<String> = state
+        .memory_cache
         .iter()
         .filter_map(|entry| {
             if entry.key().starts_with(&format!("{}:", stream_id)) {
@@ -691,10 +792,14 @@ async fn purge_stream_cache(
         }
     }
 
-    (StatusCode::OK, axum::Json(serde_json::json!({
-        "status": "purged",
-        "stream_id": stream_id
-    }))).into_response()
+    (
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "status": "purged",
+            "stream_id": stream_id
+        })),
+    )
+        .into_response()
 }
 
 /// Get cache statistics.
@@ -785,10 +890,9 @@ async fn rate_limit_middleware(
         Ok(_) => next.run(request).await,
         Err(_) => {
             let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
-            response.headers_mut().insert(
-                "Retry-After",
-                HeaderValue::from_str("60").unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert("Retry-After", HeaderValue::from_str("60").unwrap());
             response
         }
     }
@@ -798,10 +902,7 @@ async fn rate_limit_middleware(
 // Config Hot Reload
 // ============================================================================
 
-async fn config_reload_watcher(
-    mut reload_rx: mpsc::UnboundedReceiver<()>,
-    state: EdgeState,
-) {
+async fn config_reload_watcher(mut reload_rx: mpsc::UnboundedReceiver<()>, state: EdgeState) {
     while reload_rx.recv().await.is_some() {
         info!("Config reload triggered");
 
@@ -820,7 +921,7 @@ async fn config_reload_watcher(
 fn setup_signal_handlers(reload_tx: mpsc::UnboundedSender<()>) {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut sighup = signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
         tokio::spawn(async move {
             while sighup.recv().await.is_some() {
@@ -835,10 +936,8 @@ fn setup_signal_handlers(reload_tx: mpsc::UnboundedSender<()>) {
 // ============================================================================
 
 fn build_tls_config(tls_config: &TlsConfig) -> Result<RustlsServerConfig> {
-    let cert_file = std::fs::read(&tls_config.cert_file)
-        .context("Failed to read cert file")?;
-    let key_file = std::fs::read(&tls_config.key_file)
-        .context("Failed to read key file")?;
+    let cert_file = std::fs::read(&tls_config.cert_file).context("Failed to read cert file")?;
+    let key_file = std::fs::read(&tls_config.key_file).context("Failed to read key file")?;
 
     let certs = rustls_pemfile::certs(&mut std::io::BufReader::new(&cert_file[..]))
         .collect::<Result<Vec<_>, _>>()?;
@@ -908,7 +1007,12 @@ async fn main() -> Result<()> {
     let app = build_router(state.clone()).await;
 
     // Build TLS config if needed
-    let tls_config = config.server.tls.as_ref().map(build_tls_config).transpose()?;
+    let tls_config = config
+        .server
+        .tls
+        .as_ref()
+        .map(build_tls_config)
+        .transpose()?;
 
     // Start HTTP server
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
@@ -956,18 +1060,32 @@ async fn build_router(state: EdgeState) -> Router {
     // Middleware stack
     let middleware_stack = ServiceBuilder::new()
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any))
-        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Public routes (no auth required)
     let public_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/hls/:stream_id/*segment_path", get(get_segment).head(get_segment))
-        .route("/dash/:stream_id/*segment_path", get(get_segment).head(get_segment))
+        .route(
+            "/hls/:stream_id/*segment_path",
+            get(get_segment).head(get_segment),
+        )
+        .route(
+            "/dash/:stream_id/*segment_path",
+            get(get_segment).head(get_segment),
+        )
         .route("/signed-url/validate", get(validate_signed_url_endpoint));
 
     // Protected routes (auth required)
@@ -1011,13 +1129,14 @@ async fn auth_middleware(
 
     // Skip auth for public endpoints
     let path = request.uri().path();
-    if path == "/health" 
-        || path == "/metrics" 
-        || path.starts_with("/api/docs") 
+    if path == "/health"
+        || path == "/metrics"
+        || path.starts_with("/api/docs")
         || path == "/api/openapi.json"
         || path.starts_with("/hls/")
         || path.starts_with("/dash/")
-        || path == "/signed-url/validate" {
+        || path == "/signed-url/validate"
+    {
         return next.run(request).await;
     }
 
@@ -1033,9 +1152,12 @@ async fn auth_middleware(
 /// Config reload endpoint.
 async fn config_reload(State(state): State<EdgeState>) -> impl IntoResponse {
     let _ = state.reload_tx.send(());
-    (StatusCode::OK, axum::Json(serde_json::json!({
-        "status": "ok"
-    })))
+    (
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "status": "ok"
+        })),
+    )
 }
 
 #[cfg(test)]
@@ -1052,7 +1174,10 @@ mod tests {
 
     #[test]
     fn test_guess_content_type() {
-        assert_eq!(guess_content_type("playlist.m3u8"), "application/vnd.apple.mpegurl");
+        assert_eq!(
+            guess_content_type("playlist.m3u8"),
+            "application/vnd.apple.mpegurl"
+        );
         assert_eq!(guess_content_type("segment.ts"), "video/mp2t");
         assert_eq!(guess_content_type("manifest.mpd"), "application/dash+xml");
         assert_eq!(guess_content_type("segment.m4s"), "video/iso.segment");
