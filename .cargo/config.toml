@@ -1,0 +1,2 @@
+[replace]
+"xattr:0.2.3" = { version = "1.7.0" }

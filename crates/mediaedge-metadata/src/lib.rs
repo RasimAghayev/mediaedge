@@ -6,8 +6,8 @@
 
 #![warn(missing_docs)]
 
-pub mod schema;
-pub mod client;
 pub mod bucket;
+pub mod client;
 pub mod object;
+pub mod schema;
 pub mod transaction;

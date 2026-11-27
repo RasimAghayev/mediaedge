@@ -1,0 +1,108 @@
+# MediaEdge Storage Node Configuration
+
+service = "storage-node"
+
+[server]
+host = "0.0.0.0"
+port = 8081
+request_timeout_secs = 30
+max_body_size = 104857600
+http2 = true
+
+[auth]
+default_mode = "jwt"
+
+[auth.jwt]
+algorithm = "HS256"
+secret = "${MEDIAEDGE_JWT_SECRET}"
+issuer = "mediaedge"
+audience = "storage"
+
+[metrics]
+enabled = true
+path = "/metrics"
+
+[metrics.otlp]
+enabled = false
+service_name = "mediaedge-storage-node"
+
+[tracing]
+enabled = true
+level = "info"
+format = "json"
+
+# Storage backend
+[storage]
+backend = "fs"
+
+[storage.fs]
+root = "/data/storage"
+create_if_missing = true
+
+# S3 backend example:
+# [storage]
+# backend = "s3"
+# [storage.s3]
+# bucket = "mediaedge-storage"
+# region = "us-east-1"
+# endpoint = "https://s3.example.com"
+# access_key_id = "${AWS_ACCESS_KEY_ID}"
+# secret_access_key = "${AWS_SECRET_ACCESS_KEY}"
+# path_style = true
+
+# Azure Blob:
+# [storage]
+# backend = "azblob"
+# [storage.azblob]
+# container = "mediaedge"
+# account = "mystorageaccount"
+# account_key = "${AZURE_STORAGE_KEY}"
+
+# GCS:
+# [storage]
+# backend = "gcs"
+# [storage.gcs]
+# bucket = "mediaedge-storage"
+# credentials_file = "/etc/gcs/credentials.json"
+
+default_bucket = "mediaedge"
+root = ""
+
+# Replication
+[replication]
+enabled = true
+factor = 3
+interval_secs = 60
+max_concurrent = 10
+
+[replication.erasure]
+data_shards = 10
+parity_shards = 4
+
+# Archive/DVR
+[archive]
+enabled = true
+segment_duration_secs = 300
+retention_days = 30
+orphan_cleanup_interval_hours = 24
+
+[archive.tiering]
+hot = { backend = "fs", age_days = 7, config = { backend = "fs", fs = { root = "/data/storage/hot", create_if_missing = true }, default_bucket = "mediaedge" } }
+warm = { backend = "s3", age_days = 30, config = { backend = "s3", s3 = { bucket = "mediaedge-warm", region = "us-east-1" }, default_bucket = "mediaedge" } }
+cold = { backend = "s3", age_days = 90, config = { backend = "s3", s3 = { bucket = "mediaedge-cold", region = "us-east-1" }, default_bucket = "mediaedge" } }
+
+# Cache
+[cache]
+enabled = true
+max_size_bytes = 10737418240
+max_entries = 100000
+ttl_secs = 3600
+eviction_policy = "lru"
+
+# Etcd
+# [etcd]
+# endpoints = ["http://localhost:2379"]
+
+# NATS
+# [nats]
+# urls = ["nats://localhost:4222"]

@@ -1,0 +1,156 @@
+# MediaEdge Media Processor Configuration
+
+service = "media-processor"
+
+[server]
+host = "0.0.0.0"
+port = 8084
+request_timeout_secs = 60
+max_body_size = 104857600
+http2 = true
+
+[auth]
+default_mode = "jwt"
+
+[auth.jwt]
+algorithm = "HS256"
+secret = "${MEDIAEDGE_JWT_SECRET}"
+issuer = "mediaedge"
+audience = "media-processor"
+
+[metrics]
+enabled = true
+path = "/metrics"
+
+[metrics.otlp]
+enabled = false
+service_name = "mediaedge-media-processor"
+
+[tracing]
+enabled = true
+level = "info"
+format = "json"
+
+# NATS for job queue
+# [nats]
+# urls = ["nats://localhost:4222"]
+
+# Output storage
+[storage]
+backend = "fs"
+[storage.fs]
+root = "/data/media-output"
+create_if_missing = true
+default_bucket = "media-output"
+root = ""
+
+# Transcoding
+[transcoding]
+enabled = true
+ffmpeg_path = "ffmpeg"
+hwaccel = "none"
+# gpu_device = 0
+default_video_codec = "libx264"
+default_audio_codec = "aac"
+max_concurrent_jobs = 10
+queue_size = 100
+priority_levels = ["live", "vod", "archive"]
+
+# Bitrate presets
+[[transcoding.presets]]
+name = "1080p"
+video_bitrate_kbps = 5000
+audio_bitrate_kbps = 128
+resolution = "1920x1080"
+framerate = 30
+video_codec = "libx264"
+audio_codec = "aac"
+profile = "high"
+level = "4.2"
+
+[[transcoding.presets]]
+name = "720p"
+video_bitrate_kbps = 2500
+audio_bitrate_kbps = 128
+resolution = "1280x720"
+framerate = 30
+video_codec = "libx264"
+audio_codec = "aac"
+profile = "high"
+level = "3.1"
+
+[[transcoding.presets]]
+name = "480p"
+video_bitrate_kbps = 1000
+audio_bitrate_kbps = 96
+resolution = "854x480"
+framerate = 30
+video_codec = "libx264"
+audio_codec = "aac"
+profile = "main"
+level = "3.0"
+
+[[transcoding.presets]]
+name = "360p"
+video_bitrate_kbps = 500
+audio_bitrate_kbps = 64
+resolution = "640x360"
+framerate = 30
+video_codec = "libx264"
+audio_codec = "aac"
+profile = "main"
+level = "3.0"
+
+# Recording
+[recording]
+enabled = true
+segment_duration_secs = 300
+format = "mp4"
+crash_recovery = true
+max_duration_hours = 0
+
+# VOD processing
+[vod]
+enabled = true
+packaging = "both"
+
+[vod.thumbnails]
+enabled = true
+interval_secs = 10
+resolution = "320x180"
+format = "jpeg"
+
+[vod.sprites]
+enabled = true
+columns = 10
+rows = 10
+interval_secs = 5
+
+[vod.captions]
+enabled = true
+languages = ["en", "es", "fr"]
+provider = "whisper"
+whisper_model = "base"
+
+# AI processing
+[ai]
+enabled = false
+
+[ai.moderation]
+enabled = false
+provider = "builtin"
+threshold = 0.8
+categories = ["nsfw", "violence", "hate"]
+
+[ai.highlights]
+enabled = false
+scene_change_threshold = 0.3
+audio_energy_threshold = 0.5
+speech_detection = true
+min_duration_secs = 5
+
+[ai.anomaly]
+enabled = false
+bitrate_drop_threshold_pct = 50.0
+error_spike_threshold = 100
+check_interval_secs = 60

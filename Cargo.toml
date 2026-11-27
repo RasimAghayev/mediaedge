@@ -26,61 +26,115 @@ members = [
 
 [workspace.dependencies]
 # Core
-tokio = { version = "1", features = ["full", "tracing"] }
-axum = { version = "0.7", features = ["tower"] }
-tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5" }
-utoipa = { version = "5", features = ["axum"] }
-serde = { version = "1", features = ["derive"] }
+tokio = "1"
+axum = "0.7"
+tower = "0.4"
+tower-http = "0.5"
+utoipa = "5"
+serde = "1"
 serde_json = "1"
 thiserror = "1"
 anyhow = "1"
-tracing = { version = "0.1", features = ["std"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
-
-# Observability
-opentelemetry = { version = "0.27", features = ["trace", "metrics"] }
-opentelemetry-jaeger = "0.27"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+opentelemetry = "0.27"
+opentelemetry-jaeger = "0.22"
 opentelemetry-prometheus = "0.27"
 metrics = "0.22"
 metrics-exporter-prometheus = "0.13"
+hdrhistogram = "7"
+quantiles = "0.7"
 
 # Storage & Data
-opendal = { version = "0.40", features = ["fs", "s3", "azblob", "gcs", "memory"] }
-etcd-client = { version = "0.8", features = ["tls"] }
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "scripts"] }
-async-nats = { version = "0.39", features = ["jetstream", "tokio"] }
+opendal = "0.40"
+etcd-client = "0.8"
+redis = "0.24"
+async-nats = "0.39"
 bytes = "1"
 futures = "0.3"
 
 # Media
 ffmpeg-next = "6"
-image = { version = "0.25", features = ["jpeg", "png", "webp", "avif"] }
-ravif = "0.17"
-m3u8-rs = "0.5"
+image = "0.25"
+ravif = "0.13"
+m3u8-rs = "6"
 dash-mpd = "0.3"
 
 # Crypto & Auth
-aws-signature-v4 = "0.1"
+aws-signature-v4 = { version = "0.1", package = "aws-sigv4" }
 jsonwebtoken = "9"
-rustls = { version = "0.23", features = ["std", "dangerous_configuration", "logging"] }
+rustls = "0.23"
 ring = "0.17"
 age = "0.10"
-reed-solomon-erasure = "0.3"
+reed-solomon-erasure = "6"
+reqwest = "0.12"
+governor = "0.6"
+
+# AWS
+aws-config = "1"
+aws-sdk-kms = "1"
 
 # Config & Validation
-figment = { version = "0.10", features = ["toml", "env", "yaml", "serde"] }
-validator = { version = "0.17", features = ["derive"] }
+figment = "0.10"
+validator = "0.17"
+arc-swap = "1"
+schemars = "0.8"
+chrono = "0.4"
+base64 = "0.22"
+
+# Async & Concurrency
+parking_lot = "0.12"
+dashmap = "5"
+async-stream = "0.3"
+num_cpus = "1.16"
+sysinfo = "0.30"
+
+# API & gRPC
+tonic = "0.12"
+prost = "0.12"
+prost-types = { version = "0.12" }
+utoipa-swagger-ui = "7"
+utoipa-redoc = "7"
+utoipa-rapidoc = "7"
+utoipa-gen = "0.1"
+
+# Validation & Utils
+uuid = "1"
+pin-project-lite = "0.2"
+serde_qs = "0.10"
+async-trait = "0.1"
+rand = "0.8"
+url = "2"
+bincode = "1.3"
+blake3 = "1.5"
+lru = "0.10"
+hmac = "0.12"
+sha2 = "0.10"
+tokio-stream = "0.1"
+tokio-rustls = "0.26"
+rustls-pemfile = "1.0"
+cron = "0.10"
+tokio-util = "0.7"
+xattr = "1.7"
+
+# Media Protocols
+rtmp = "0.4"
+srt = "0.1"
+# rist = { version = "0.1", features = ["tokio"] }
+webrtc = "0.12"
+str0m = "0.6"
+rtsp = "0.1"
 
 # Testing
-testcontainers = { version = "0.19", features = ["tokio", "etcd", "redis", "nats", "minio"] }
+testcontainers = "0.19"
 proptest = "1"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = "0.5"
 mockall = "0.13"
 
 # CLI
-clap = { version = "4", features = ["derive", "env"] }
+clap = "4"
 color-eyre = "0.6"
+moka = "0.12"
 
 [profile.release]
 opt-level = 3

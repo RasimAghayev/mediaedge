@@ -7,7 +7,7 @@
 
 #![warn(missing_docs)]
 
-pub mod subjects;
-pub mod publisher;
 pub mod consumer;
 pub mod outbox;
+pub mod publisher;
+pub mod subjects;
