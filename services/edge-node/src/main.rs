@@ -951,7 +951,7 @@ async fn build_router(state: EdgeState) -> Router {
         swagger_path: "/api/docs/swagger".to_string(),
         redoc_path: "/api/docs/redoc".to_string(),
         rapidoc_path: "/api/docs/rapidoc".to_string(),
-    }
+    };
 
     // Middleware stack
     let middleware_stack = ServiceBuilder::new()
