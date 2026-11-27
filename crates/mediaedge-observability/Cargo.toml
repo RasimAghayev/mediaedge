@@ -4,7 +4,41 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-workspace = true
+# Workspace dependencies
+tokio = { workspace = true, features = ["full", "tracing"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-jaeger = { workspace = true }
+opentelemetry-prometheus = { workspace = true }
+figment = { workspace = true }
+validator = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+utoipa = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+async-stream = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+hdrhistogram = { workspace = true }
+quantiles = { workspace = true }
+
+# Dev dependencies
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["full", "tracing", "test-util"] }
+hyper = "1"
+reqwest = { version = "0.12", features = ["json"] }
 
 [lib]
 path = "src/lib.rs"

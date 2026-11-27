@@ -4,7 +4,55 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-workspace = true
+# Workspace dependencies
+tokio = { workspace = true, features = ["full", "tracing"] }
+axum = { workspace = true }
+tower = { workspace = true }
+utoipa = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+color-eyre = { workspace = true }
+arc-swap = { workspace = true }
+figment = { workspace = true }
+validator = { workspace = true }
+clap = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = "0.12"
+governor = "0.6"
+async-nats = { workspace = true }
 
-[lib]
-path = "src/lib.rs"
+# OIDC/OAuth
+openidconnect = "4"
+oauth2 = "4"
+
+# MFA
+totp-lite = "2"
+webauthn-rs = { version = "0.6", features = [] }
+
+# Encryption/Secrets
+age = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-kms = { workspace = true }
+
+# Database
+sqlx = "0.8"
+sqlx-postgres = "0.8"
+
+# Testing
+[dev-dependencies]
+testcontainers = { workspace = true }
+proptest = { workspace = true }
+mockall = { workspace = true }

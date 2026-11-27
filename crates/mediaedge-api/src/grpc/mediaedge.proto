@@ -1,0 +1,819 @@
+syntax = "proto3";
+
+package mediaedge.v1;
+
+option go_package = "github.com/mediaedge/api/grpc/go;mediaedgev1";
+option java_package = "com.mediaedge.api.grpc";
+option java_multiple_files = true;
+option java_outer_classname = "MediaEdgeProto";
+option csharp_namespace = "MediaEdge.Api.Grpc";
+option php_namespace = "MediaEdge\\Api\\Grpc";
+option ruby_package = "MediaEdge::Api::Grpc";
+option python_package = "mediaedge.api.grpc";
+
+// ============================================================================
+// Common Types
+// ============================================================================
+
+message Empty {}
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message Duration {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message StreamId {
+  string value = 1;
+}
+
+message NodeId {
+  string value = 1;
+}
+
+message TenantId {
+  string value = 1;
+}
+
+// ============================================================================
+// Stream Management
+// ============================================================================
+
+enum StreamStatus {
+  STREAM_STATUS_UNSPECIFIED = 0;
+  STREAM_STATUS_OFFLINE = 1;
+  STREAM_STATUS_STARTING = 2;
+  STREAM_STATUS_LIVE = 3;
+  STREAM_STATUS_ENDING = 4;
+  STREAM_STATUS_ERROR = 5;
+}
+
+enum StreamHealth {
+  STREAM_HEALTH_UNSPECIFIED = 0;
+  STREAM_HEALTH_HEALTHY = 1;
+  STREAM_HEALTH_DEGRADED = 2;
+  STREAM_HEALTH_UNHEALTHY = 3;
+}
+
+enum IngestProtocol {
+  INGEST_PROTOCOL_UNSPECIFIED = 0;
+  INGEST_PROTOCOL_RTMP = 1;
+  INGEST_PROTOCOL_SRT = 2;
+  INGEST_PROTOCOL_RIST = 3;
+  INGEST_PROTOCOL_WHIP = 4;
+  INGEST_PROTOCOL_RTSP = 5;
+}
+
+enum EgressProtocol {
+  EGRESS_PROTOCOL_UNSPECIFIED = 0;
+  EGRESS_PROTOCOL_HLS = 1;
+  EGRESS_PROTOCOL_DASH = 2;
+  EGRESS_PROTOCOL_WHEP = 3;
+  EGRESS_PROTOCOL_MOQ = 4;
+  EGRESS_PROTOCOL_WS = 5;
+  EGRESS_PROTOCOL_RTMP = 6;
+  EGRESS_PROTOCOL_SRT = 7;
+  EGRESS_PROTOCOL_RTSP = 8;
+}
+
+message Stream {
+  string id = 1;
+  string name = 2;
+  StreamStatus status = 3;
+  StreamHealth health = 4;
+  IngestProtocol ingest_protocol = 5;
+  repeated EgressProtocol egress_protocols = 6;
+  Timestamp created_at = 7;
+  Timestamp started_at = 8;
+  Timestamp ended_at = 9;
+  uint64 viewer_count = 10;
+  uint64 bitrate_bps = 11;
+  string resolution = 12;
+  string codec = 13;
+  map<string, string> metadata = 14;
+}
+
+message CreateStreamRequest {
+  string name = 1;
+  IngestProtocol ingest_protocol = 2;
+  repeated EgressProtocol egress_protocols = 3;
+  string stream_key = 4;
+  map<string, string> metadata = 5;
+  RecordingConfig recording = 6;
+  TranscodingConfig transcoding = 7;
+}
+
+message UpdateStreamRequest {
+  string name = 1;
+  repeated EgressProtocol egress_protocols = 2;
+  map<string, string> metadata = 3;
+  RecordingConfig recording = 4;
+  TranscodingConfig transcoding = 5;
+}
+
+message RecordingConfig {
+  bool enabled = 1;
+  string format = 2;
+  uint32 segment_duration_secs = 3;
+  uint32 retention_days = 4;
+  string storage_path = 5;
+}
+
+message TranscodingConfig {
+  bool enabled = 1;
+  repeated string presets = 2;
+  string hwaccel = 3;
+}
+
+message ListStreamsRequest {
+  uint32 page = 1;
+  uint32 per_page = 2;
+  StreamStatus status_filter = 3;
+  string tenant_id = 4;
+}
+
+message ListStreamsResponse {
+  repeated Stream streams = 1;
+  PaginationInfo pagination = 2;
+}
+
+message GetStreamRequest {
+  StreamId stream_id = 1;
+}
+
+message DeleteStreamRequest {
+  StreamId stream_id = 1;
+}
+
+message StreamIngestInfoRequest {
+  StreamId stream_id = 1;
+  IngestProtocol protocol = 2;
+}
+
+message StreamIngestInfoResponse {
+  oneof info {
+    RtmpIngestInfo rtmp = 1;
+    SrtIngestInfo srt = 2;
+    RistIngestInfo rist = 3;
+    WhipIngestInfo whip = 4;
+  }
+}
+
+message RtmpIngestInfo {
+  string server_url = 1;
+  string stream_key = 2;
+  string app_name = 3;
+}
+
+message SrtIngestInfo {
+  string host = 1;
+  uint32 port = 2;
+  string stream_id = 3;
+  uint32 latency_ms = 4;
+  string passphrase = 5;
+}
+
+message RistIngestInfo {
+  string host = 1;
+  uint32 port = 2;
+  string stream_id = 3;
+}
+
+message WhipIngestInfo {
+  string endpoint = 1;
+  repeated string stun_servers = 2;
+  repeated TurnServer turn_servers = 3;
+}
+
+message TurnServer {
+  repeated string urls = 1;
+  string username = 2;
+  string credential = 3;
+}
+
+message StreamEgressInfoRequest {
+  StreamId stream_id = 1;
+  EgressProtocol protocol = 2;
+}
+
+message StreamEgressInfoResponse {
+  oneof info {
+    HlsPlaybackInfo hls = 1;
+    DashPlaybackInfo dash = 2;
+    WhepPlaybackInfo whep = 3;
+    MoqPlaybackInfo moq = 4;
+    WsPlaybackInfo ws = 5;
+  }
+}
+
+message HlsPlaybackInfo {
+  string master_playlist_url = 1;
+  repeated HlsVariant variant_playlists = 2;
+}
+
+message HlsVariant {
+  string resolution = 1;
+  uint32 bitrate_kbps = 2;
+  string codec = 3;
+  string playlist_url = 4;
+}
+
+message DashPlaybackInfo {
+  string mpd_url = 1;
+  repeated DashRepresentation representations = 2;
+}
+
+message DashRepresentation {
+  string id = 1;
+  string resolution = 2;
+  uint32 bitrate_kbps = 3;
+  string codec = 4;
+  string mime_type = 5;
+}
+
+message WhepPlaybackInfo {
+  string endpoint = 1;
+  repeated string stun_servers = 2;
+  repeated TurnServer turn_servers = 3;
+}
+
+message MoqPlaybackInfo {
+  string endpoint = 1;
+  string track_namespace = 2;
+}
+
+message WsPlaybackInfo {
+  string url = 1;
+}
+
+// ============================================================================
+// Storage
+// ============================================================================
+
+enum StorageTier {
+  STORAGE_TIER_UNSPECIFIED = 0;
+  STORAGE_TIER_HOT = 1;
+  STORAGE_TIER_WARM = 2;
+  STORAGE_TIER_COLD = 3;
+}
+
+message StorageObject {
+  string key = 1;
+  string bucket = 2;
+  uint64 size = 3;
+  string content_type = 4;
+  string etag = 5;
+  Timestamp last_modified = 6;
+  map<string, string> metadata = 7;
+  StorageTier tier = 8;
+}
+
+message ArchiveSegment {
+  string id = 1;
+  string stream_id = 2;
+  Timestamp start_time = 3;
+  Timestamp end_time = 4;
+  uint32 duration_secs = 5;
+  uint64 size_bytes = 6;
+  string storage_path = 7;
+  StorageTier tier = 8;
+}
+
+message ListObjectsRequest {
+  string bucket = 1;
+  string prefix = 2;
+  uint32 max_keys = 3;
+  string continuation_token = 4;
+}
+
+message ListObjectsResponse {
+  repeated StorageObject objects = 1;
+  bool is_truncated = 2;
+  string next_continuation_token = 3;
+}
+
+message GetObjectRequest {
+  string bucket = 1;
+  string key = 2;
+}
+
+message DeleteObjectRequest {
+  string bucket = 1;
+  string key = 2;
+}
+
+message GetArchiveSegmentsRequest {
+  string stream_id = 1;
+  Timestamp start_time = 2;
+  Timestamp end_time = 3;
+}
+
+message GetArchiveSegmentsResponse {
+  repeated ArchiveSegment segments = 1;
+}
+
+message GetStorageUsageRequest {}
+
+message GetStorageUsageResponse {
+  uint64 total_bytes = 1;
+  uint64 used_bytes = 2;
+  uint64 available_bytes = 3;
+  map<StorageTier, TierUsage> by_tier = 4;
+}
+
+message TierUsage {
+  uint64 used_bytes = 1;
+  uint64 object_count = 2;
+}
+
+// ============================================================================
+// Edge Nodes
+// ============================================================================
+
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  NODE_STATUS_ONLINE = 1;
+  NODE_STATUS_OFFLINE = 2;
+  NODE_STATUS_DEGRADED = 3;
+  NODE_STATUS_MAINTENANCE = 4;
+}
+
+message EdgeNode {
+  string id = 1;
+  string name = 2;
+  string region = 3;
+  NodeStatus status = 4;
+  EdgeCapacity capacity = 5;
+  CacheStats cache_stats = 6;
+  Timestamp last_seen = 7;
+}
+
+message EdgeCapacity {
+  uint64 max_viewers = 1;
+  uint64 max_bandwidth_mbps = 2;
+  uint64 current_viewers = 3;
+  uint64 current_bandwidth_mbps = 4;
+}
+
+message CacheStats {
+  double hit_ratio = 1;
+  uint64 size_bytes = 2;
+  uint64 entry_count = 3;
+  uint64 eviction_count = 4;
+}
+
+message ListEdgeNodesRequest {
+  string region = 1;
+  NodeStatus status_filter = 2;
+}
+
+message ListEdgeNodesResponse {
+  repeated EdgeNode nodes = 1;
+}
+
+message GetEdgeNodeRequest {
+  NodeId node_id = 1;
+}
+
+message CreateSignedUrlRequest {
+  string stream_id = 1;
+  EgressProtocol protocol = 2;
+  uint64 ttl_secs = 3;
+  repeated string ip_whitelist = 4;
+  repeated string geo_whitelist = 5;
+}
+
+message CreateSignedUrlResponse {
+  string url = 1;
+  Timestamp expires_at = 2;
+  string signature = 3;
+}
+
+// ============================================================================
+// Replication
+// ============================================================================
+
+enum ReplicationStatus {
+  REPLICATION_STATUS_UNSPECIFIED = 0;
+  REPLICATION_STATUS_PENDING = 1;
+  REPLICATION_STATUS_RUNNING = 2;
+  REPLICATION_STATUS_COMPLETED = 3;
+  REPLICATION_STATUS_FAILED = 4;
+  REPLICATION_STATUS_CANCELLED = 5;
+}
+
+message ReplicationTask {
+  string id = 1;
+  string stream_id = 2;
+  string source_node = 3;
+  repeated string target_nodes = 4;
+  ReplicationStatus status = 5;
+  double progress_pct = 6;
+  uint64 bytes_transferred = 7;
+  uint64 total_bytes = 8;
+  Timestamp started_at = 9;
+  Timestamp completed_at = 10;
+  string error = 11;
+}
+
+message ListReplicationTasksRequest {
+  string stream_id = 1;
+  ReplicationStatus status_filter = 2;
+}
+
+message ListReplicationTasksResponse {
+  repeated ReplicationTask tasks = 1;
+}
+
+message GetReplicationPlanRequest {
+  string stream_id = 1;
+}
+
+message GetReplicationPlanResponse {
+  string stream_id = 1;
+  uint32 min_replicas = 2;
+  uint32 max_replicas = 3;
+  uint32 current_replicas = 4;
+  repeated string target_nodes = 5;
+  repeated string region_preferences = 6;
+  bool anti_affinity = 7;
+}
+
+// ============================================================================
+// Transcoding
+// ============================================================================
+
+enum TranscodeStatus {
+  TRANSCODE_STATUS_UNSPECIFIED = 0;
+  TRANSCODE_STATUS_QUEUED = 1;
+  TRANSCODE_STATUS_RUNNING = 2;
+  TRANSCODE_STATUS_COMPLETED = 3;
+  TRANSCODE_STATUS_FAILED = 4;
+  TRANSCODE_STATUS_CANCELLED = 5;
+}
+
+enum JobPriority {
+  JOB_PRIORITY_UNSPECIFIED = 0;
+  JOB_PRIORITY_LOW = 1;
+  JOB_PRIORITY_NORMAL = 2;
+  JOB_PRIORITY_HIGH = 3;
+  JOB_PRIORITY_CRITICAL = 4;
+}
+
+message TranscodeJob {
+  string id = 1;
+  string stream_id = 2;
+  string input_path = 3;
+  repeated string output_paths = 4;
+  string preset = 5;
+  TranscodeStatus status = 6;
+  double progress_pct = 7;
+  JobPriority priority = 8;
+  Timestamp created_at = 9;
+  Timestamp started_at = 10;
+  Timestamp completed_at = 11;
+  string error = 12;
+}
+
+message SubmitTranscodeJobRequest {
+  string stream_id = 1;
+  string input_path = 2;
+  repeated string output_paths = 3;
+  string preset = 4;
+  JobPriority priority = 5;
+}
+
+message SubmitTranscodeJobResponse {
+  TranscodeJob job = 1;
+}
+
+message ListTranscodeJobsRequest {
+  string stream_id = 1;
+  TranscodeStatus status_filter = 2;
+  JobPriority priority_filter = 3;
+}
+
+message ListTranscodeJobsResponse {
+  repeated TranscodeJob jobs = 1;
+}
+
+message GetBitratePresetsRequest {}
+
+message GetBitratePresetsResponse {
+  repeated BitratePreset presets = 1;
+}
+
+message BitratePreset {
+  string name = 1;
+  string resolution = 2;
+  uint32 video_bitrate_kbps = 3;
+  uint32 audio_bitrate_kbps = 4;
+  uint32 framerate = 5;
+  string video_codec = 6;
+  string audio_codec = 7;
+  string hwaccel = 8;
+}
+
+// ============================================================================
+// Cluster
+// ============================================================================
+
+enum NodeRole {
+  NODE_ROLE_UNSPECIFIED = 0;
+  NODE_ROLE_GATEWAY = 1;
+  NODE_ROLE_STORAGE = 2;
+  NODE_ROLE_EDGE = 3;
+  NODE_ROLE_REPLICATION_COORDINATOR = 4;
+  NODE_ROLE_MEDIA_PROCESSOR = 5;
+}
+
+message ClusterNode {
+  string id = 1;
+  string name = 2;
+  NodeRole role = 3;
+  NodeStatus status = 4;
+  string address = 5;
+  ClusterCapacity capacity = 6;
+  map<string, string> metadata = 7;
+  Timestamp last_heartbeat = 8;
+}
+
+message ClusterCapacity {
+  uint32 cpu_cores = 1;
+  uint64 memory_gb = 2;
+  uint64 disk_gb = 3;
+  uint64 network_gbps = 4;
+  uint32 gpu_count = 5;
+  double current_load = 6;
+}
+
+message ListClusterNodesRequest {
+  NodeRole role_filter = 1;
+  NodeStatus status_filter = 2;
+}
+
+message ListClusterNodesResponse {
+  repeated ClusterNode nodes = 1;
+}
+
+message GetClusterNodeRequest {
+  NodeId node_id = 1;
+}
+
+message BroadcastOwnership {
+  string stream_id = 1;
+  string owner_node = 2;
+  Timestamp lease_expires = 3;
+  repeated string replicas = 4;
+}
+
+message GetBroadcastOwnershipRequest {
+  string stream_id = 1;
+}
+
+message GetBroadcastOwnershipResponse {
+  BroadcastOwnership ownership = 1;
+}
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+message ReloadConfigRequest {
+  bool force = 1;
+}
+
+message ReloadConfigResponse {
+  string status = 1;
+  uint64 version = 2;
+  bool changed = 3;
+  string message = 4;
+}
+
+message GetConfigVersionRequest {}
+
+message GetConfigVersionResponse {
+  uint64 version = 1;
+  string source = 2;
+  Timestamp loaded_at = 3;
+  string service = 4;
+}
+
+// ============================================================================
+// Metrics & SLO
+// ============================================================================
+
+enum SloOverallStatus {
+  SLO_OVERALL_STATUS_UNSPECIFIED = 0;
+  SLO_OVERALL_STATUS_HEALTHY = 1;
+  SLO_OVERALL_STATUS_WARNING = 2;
+  SLO_OVERALL_STATUS_CRITICAL = 3;
+}
+
+enum SloTransportStatus {
+  SLO_TRANSPORT_STATUS_UNSPECIFIED = 0;
+  SLO_TRANSPORT_STATUS_HEALTHY = 1;
+  SLO_TRANSPORT_STATUS_WARNING = 2;
+  SLO_TRANSPORT_STATUS_CRITICAL = 3;
+}
+
+message SloStatus {
+  SloOverallStatus overall_status = 1;
+  map<string, TransportSloStatus> transports = 2;
+  Timestamp evaluated_at = 3;
+}
+
+message TransportSloStatus {
+  string transport = 1;
+  uint64 target_ms = 2;
+  double p50_ms = 3;
+  double p95_ms = 4;
+  double p99_ms = 5;
+  SloTransportStatus status = 6;
+  double error_budget_remaining = 7;
+  uint64 sample_count = 8;
+}
+
+message GetSloStatusRequest {}
+
+message GetSloStatusResponse {
+  SloStatus status = 1;
+}
+
+message SubmitClientSampleRequest {
+  string transport = 1;
+  double latency_secs = 2;
+  string session_id = 3;
+  string client_version = 4;
+  string player_type = 5;
+  string quality = 6;
+  string region = 7;
+}
+
+message SubmitClientSampleResponse {}
+
+// ============================================================================
+// Admin
+// ============================================================================
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_HEALTHY = 1;
+  HEALTH_STATUS_DEGRADED = 2;
+  HEALTH_STATUS_UNHEALTHY = 3;
+}
+
+message SystemHealth {
+  HealthStatus status = 1;
+  map<string, ComponentHealth> components = 2;
+  Timestamp timestamp = 3;
+}
+
+message ComponentHealth {
+  HealthStatus status = 1;
+  string message = 2;
+  Timestamp last_check = 3;
+}
+
+message GetSystemHealthRequest {}
+
+message GetSystemHealthResponse {
+  SystemHealth health = 1;
+}
+
+enum TenantStatus {
+  TENANT_STATUS_UNSPECIFIED = 0;
+  TENANT_STATUS_ACTIVE = 1;
+  TENANT_STATUS_SUSPENDED = 2;
+  TENANT_STATUS_DELETED = 3;
+}
+
+message Tenant {
+  string id = 1;
+  string name = 2;
+  TenantStatus status = 3;
+  TenantQuotas quotas = 4;
+  Timestamp created_at = 5;
+}
+
+message TenantQuotas {
+  uint32 max_streams = 1;
+  uint64 max_viewers = 2;
+  uint64 max_bandwidth_mbps = 3;
+  uint64 max_storage_gb = 4;
+  uint32 max_transcode_jobs = 5;
+}
+
+message ListTenantsRequest {
+  uint32 page = 1;
+  uint32 per_page = 2;
+  TenantStatus status_filter = 3;
+}
+
+message ListTenantsResponse {
+  repeated Tenant tenants = 1;
+  PaginationInfo pagination = 2;
+}
+
+message CreateTenantRequest {
+  string name = 1;
+  TenantQuotas quotas = 2;
+}
+
+message CreateTenantResponse {
+  Tenant tenant = 1;
+}
+
+message GetTenantRequest {
+  TenantId tenant_id = 1;
+}
+
+message UpdateTenantRequest {
+  TenantId tenant_id = 1;
+  string name = 2;
+  TenantStatus status = 3;
+  TenantQuotas quotas = 4;
+}
+
+message DeleteTenantRequest {
+  TenantId tenant_id = 1;
+}
+
+// ============================================================================
+// Pagination
+// ============================================================================
+
+message PaginationInfo {
+  uint32 page = 1;
+  uint32 per_page = 2;
+  uint64 total = 3;
+  uint32 total_pages = 4;
+}
+
+// ============================================================================
+// Services
+// ============================================================================
+
+service StreamService {
+  rpc CreateStream(CreateStreamRequest) returns (Stream);
+  rpc GetStream(GetStreamRequest) returns (Stream);
+  rpc UpdateStream(UpdateStreamRequest) returns (Stream);
+  rpc DeleteStream(DeleteStreamRequest) returns (Empty);
+  rpc ListStreams(ListStreamsRequest) returns (ListStreamsResponse);
+  rpc GetIngestInfo(StreamIngestInfoRequest) returns (StreamIngestInfoResponse);
+  rpc GetEgressInfo(StreamEgressInfoRequest) returns (StreamEgressInfoResponse);
+}
+
+service StorageService {
+  rpc ListObjects(ListObjectsRequest) returns (ListObjectsResponse);
+  rpc GetObject(GetObjectRequest) returns (StorageObject);
+  rpc DeleteObject(DeleteObjectRequest) returns (Empty);
+  rpc GetArchiveSegments(GetArchiveSegmentsRequest) returns (GetArchiveSegmentsResponse);
+  rpc GetStorageUsage(GetStorageUsageRequest) returns (GetStorageUsageResponse);
+}
+
+service EdgeService {
+  rpc ListEdgeNodes(ListEdgeNodesRequest) returns (ListEdgeNodesResponse);
+  rpc GetEdgeNode(GetEdgeNodeRequest) returns (EdgeNode);
+  rpc CreateSignedUrl(CreateSignedUrlRequest) returns (CreateSignedUrlResponse);
+}
+
+service ReplicationService {
+  rpc ListReplicationTasks(ListReplicationTasksRequest) returns (ListReplicationTasksResponse);
+  rpc GetReplicationPlan(GetReplicationPlanRequest) returns (GetReplicationPlanResponse);
+}
+
+service TranscodingService {
+  rpc SubmitTranscodeJob(SubmitTranscodeJobRequest) returns (SubmitTranscodeJobResponse);
+  rpc ListTranscodeJobs(ListTranscodeJobsRequest) returns (ListTranscodeJobsResponse);
+  rpc GetBitratePresets(GetBitratePresetsRequest) returns (GetBitratePresetsResponse);
+}
+
+service ClusterService {
+  rpc ListClusterNodes(ListClusterNodesRequest) returns (ListClusterNodesResponse);
+  rpc GetClusterNode(GetClusterNodeRequest) returns (ClusterNode);
+  rpc GetBroadcastOwnership(GetBroadcastOwnershipRequest) returns (GetBroadcastOwnershipResponse);
+}
+
+service ConfigService {
+  rpc ReloadConfig(ReloadConfigRequest) returns (ReloadConfigResponse);
+  rpc GetConfigVersion(GetConfigVersionRequest) returns (GetConfigVersionResponse);
+}
+
+service MetricsService {
+  rpc GetSloStatus(GetSloStatusRequest) returns (GetSloStatusResponse);
+  rpc SubmitClientSample(SubmitClientSampleRequest) returns (SubmitClientSampleResponse);
+}
+
+service AdminService {
+  rpc GetSystemHealth(GetSystemHealthRequest) returns (GetSystemHealthResponse);
+  rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse);
+  rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse);
+  rpc GetTenant(GetTenantRequest) returns (Tenant);
+  rpc UpdateTenant(UpdateTenantRequest) returns (Tenant);
+  rpc DeleteTenant(DeleteTenantRequest) returns (Empty);
+}

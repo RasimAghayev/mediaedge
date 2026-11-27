@@ -1,0 +1,159 @@
+# MediaEdge Gateway Configuration
+# Copy to config.toml and customize
+
+service = "gateway"
+
+# Server configuration
+[server]
+host = "0.0.0.0"
+port = 8080
+request_timeout_secs = 30
+max_body_size = 10485760
+http2 = true
+
+# TLS configuration (optional)
+# [server.tls]
+# cert_file = "/etc/mediaedge/certs/server.crt"
+# key_file = "/etc/mediaedge/certs/server.key"
+# ca_file = "/etc/mediaedge/certs/ca.crt"
+# require_client_cert = false
+# alpn_protocols = ["h2", "http/1.1"]
+
+# Authentication
+[auth]
+default_mode = "jwt"
+
+# JWT configuration (HS256 symmetric)
+[auth.jwt]
+algorithm = "HS256"
+secret = "${MEDIAEDGE_JWT_SECRET}"  # Set via env var
+issuer = "mediaedge"
+audience = "api"
+clock_skew_secs = 60
+
+# Or use JWKS for asymmetric keys:
+# [auth.jwt]
+# algorithm = "RS256"
+# jwks_url = "https://auth.example.com/.well-known/jwks.json"
+# jwks_cache_ttl_secs = 300
+
+# Static tokens (simple deployments)
+# [auth.static_tokens]
+# tokens = { "dev-token" = "admin operator", "viewer-token" = "viewer" }
+
+# Webhook auth (external auth service)
+# [auth.webhook]
+# url = "https://auth.example.com/validate"
+# timeout_secs = 5
+# cache_ttl_secs = 60
+# headers = { "X-API-Key" = "secret" }
+
+# Metrics
+[metrics]
+enabled = true
+path = "/metrics"
+# port = 9090  # Optional separate metrics port
+
+[metrics.otlp]
+enabled = false
+# endpoint = "http://collector:4317"
+service_name = "mediaedge-gateway"
+trace_sample_ratio = 0.1
+metric_interval_secs = 60
+
+# Tracing
+[tracing]
+enabled = true
+level = "info"
+format = "json"
+
+# [tracing.jaeger]
+# enabled = true
+# agent_host = "localhost"
+# agent_port = 6831
+# sampler_type = "probabilistic"
+# sampler_param = 0.1
+
+# Rate limiting
+[rate_limit]
+enabled = true
+requests_per_window = 1000
+window_secs = 60
+key_prefix = "rl:"
+
+# [rate_limit.redis]
+# url = "redis://localhost:6379"
+# pool_size = 10
+# connect_timeout_secs = 5
+# command_timeout_secs = 5
+
+# Redis for sessions/cache
+# [redis]
+# url = "redis://localhost:6379"
+# pool_size = 10
+# connect_timeout_secs = 5
+# command_timeout_secs = 5
+
+# NATS for event streaming
+# [nats]
+# urls = ["nats://localhost:4222"]
+# jetstream_domain = "mediaedge"
+# name = "gateway"
+
+# Etcd for cluster coordination
+# [etcd]
+# endpoints = ["http://localhost:2379"]
+# request_timeout_secs = 10
+# dial_timeout_secs = 10
+
+# Upstream services for proxying
+# [[upstreams]]
+# name = "storage-node"
+# url = "http://storage-node:8081"
+# health_path = "/health"
+# health_interval_secs = 10
+# timeout_secs = 30
+# weight = 1
+
+# Protocol-specific configuration
+[protocols.rtmp]
+enabled = true
+port = 1935
+# port_tls = 1936  # RTMPS
+chunk_size = 4096
+ping_interval_secs = 30
+max_stream_key_len = 128
+
+[protocols.srt]
+enabled = true
+port = 8888
+latency_ms = 120
+encryption = false
+# passphrase = "${MEDIAEDGE_SRT_PASSPHRASE}"
+stream_id_prefix = "stream/"
+
+[protocols.rist]
+enabled = true
+port = 5000
+profile = "simple"
+
+[protocols.whip]
+enabled = true
+path = "/whip"
+stun_servers = ["stun:stun.l.google.com:19302"]
+# turn_servers = [
+#   { urls = ["turn:turn.example.com:3478"], username = "user", credential = "pass" }
+# ]
+
+[protocols.http]
+hls_enabled = true
+dash_enabled = true
+segment_duration_secs = 6
+playlist_window = 10
+
+# Admin API
+[admin]
+enabled = true
+path = "/api/v1/admin"
+# token = "${MEDIAEDGE_ADMIN_TOKEN}"
+allowed_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]

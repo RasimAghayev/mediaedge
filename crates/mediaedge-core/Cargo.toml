@@ -4,7 +4,51 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-workspace = true
+# Workspace dependencies
+tokio = { workspace = true, features = ["full", "tracing"] }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+rand = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+num_cpus = { workspace = true }
+sysinfo = { workspace = true }
+bincode = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "gzip"] }
+blake3 = { workspace = true }
+chrono-tz = "0.6"
+
+# Cluster
+swim = { version = "0.2" }
+
+# Monetization
+rust_decimal = "1.35"
+
+# AI
+# AWS SDK for Bedrock/SageMaker would be added here when implementing real clients
+
+# Config integration
+mediaedge-config = { path = "../mediaedge-config" }
+mediaedge-observability = { path = "../mediaedge-observability" }
+mediaedge-auth = { path = "../mediaedge-auth" }
+
+# Dev dependencies
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["full", "tracing", "test-util"] }
+mockall = { workspace = true }
+proptest = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

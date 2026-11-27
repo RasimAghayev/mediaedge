@@ -4,7 +4,63 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-workspace = true
+opendal = { workspace = true }
+etcd-client = { workspace = true }
+redis = { workspace = true }
+async-nats = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["full", "tracing"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { workspace = true }
+base64 = { workspace = true }
+reed-solomon-erasure = { workspace = true }
+age = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-kms = { workspace = true }
+figment = { workspace = true }
+validator = { workspace = true }
+arc-swap = { workspace = true }
+schemars = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+async-stream = { workspace = true }
+num_cpus = { workspace = true }
+sysinfo = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+jsonwebtoken = { workspace = true }
+rustls = { workspace = true }
+ring = { workspace = true }
+aws-signature-v4 = { workspace = true }
+ffmpeg-next = { workspace = true }
+image = { workspace = true }
+ravif = { workspace = true }
+m3u8-rs = { workspace = true }
+dash-mpd = { workspace = true }
+rtmp = { workspace = true }
+srt = { workspace = true }
+webrtc = { workspace = true }
+str0m = { workspace = true }
+rtsp = { workspace = true }
+testcontainers = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+mockall = { workspace = true }
+clap = { workspace = true }
+color-eyre = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

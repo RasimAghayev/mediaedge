@@ -8,4 +8,62 @@ name = "replication-coordinator"
 path = "src/main.rs"
 
 [dependencies]
-workspace = true
+# Workspace dependencies
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+utoipa-redoc = { workspace = true }
+utoipa-rapidoc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+num_cpus = { workspace = true }
+sysinfo = { workspace = true }
+bincode = { workspace = true }
+color-eyre = { workspace = true }
+arc-swap = { workspace = true }
+figment = { workspace = true }
+validator = { workspace = true }
+clap = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = "1.0"
+tokio-rustls = "0.26"
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
+governor = { workspace = true }
+
+# Etcd for Raft
+etcd-client = { workspace = true }
+
+# NATS for events
+async-nats = { workspace = true }
+
+# Replication crate
+mediaedge-replication = { path = "../../crates/mediaedge-replication" }
+
+# Config & Observability
+mediaedge-config = { path = "../../crates/mediaedge-config" }
+mediaedge-observability = { path = "../../crates/mediaedge-observability" }
+mediaedge-core = { path = "../../crates/mediaedge-core" }
+mediaedge-api = { path = "../../crates/mediaedge-api" }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+mockall = { workspace = true }
