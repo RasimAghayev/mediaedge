@@ -39,9 +39,9 @@ tracing = { version = "0.1", features = ["std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 
 # Observability
-opentelemetry = { version = "0.27", features = ["trace", "metrics"] }
+opentelemetry = { version = "0.33", features = ["trace", "metrics"] }
 opentelemetry-jaeger = "0.27"
-opentelemetry-prometheus = "0.27"
+opentelemetry-prometheus = "0.33"
 metrics = "0.22"
 metrics-exporter-prometheus = "0.13"
 
