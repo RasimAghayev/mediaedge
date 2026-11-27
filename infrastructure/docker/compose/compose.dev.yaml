@@ -15,7 +15,7 @@ services:
       - etcd-data:/var/lib/etcd
 
   redis:
-    image: redis:7.2-alpine
+    image: redis:7.4-alpine
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
