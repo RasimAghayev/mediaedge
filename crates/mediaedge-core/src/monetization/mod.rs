@@ -12,11 +12,8 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::monetization::{
-    billing::BillingService,
-    bundle::BundleService,
-    entitlement::EntitlementService,
-    fast::FastScheduler,
-    tvod::TvodStorefront,
+    billing::BillingService, bundle::BundleService, entitlement::EntitlementService,
+    fast::FastScheduler, tvod::TvodStorefront,
 };
 
 /// Monetization manager orchestrating all monetization services.
@@ -53,11 +50,21 @@ impl MonetizationManager {
     }
 
     // Accessors
-    pub fn entitlement(&self) -> &Arc<EntitlementService> { &self.entitlement }
-    pub fn billing(&self) -> &Arc<BillingService> { &self.billing }
-    pub fn fast_scheduler(&self) -> &Arc<FastScheduler> { &self.fast_scheduler }
-    pub fn tvod(&self) -> &Arc<TvodStorefront> { &self.tvod }
-    pub fn bundles(&self) -> &Arc<BundleService> { &self.bundles }
+    pub fn entitlement(&self) -> &Arc<EntitlementService> {
+        &self.entitlement
+    }
+    pub fn billing(&self) -> &Arc<BillingService> {
+        &self.billing
+    }
+    pub fn fast_scheduler(&self) -> &Arc<FastScheduler> {
+        &self.fast_scheduler
+    }
+    pub fn tvod(&self) -> &Arc<TvodStorefront> {
+        &self.tvod
+    }
+    pub fn bundles(&self) -> &Arc<BundleService> {
+        &self.bundles
+    }
 }
 
 impl Default for MonetizationManager {

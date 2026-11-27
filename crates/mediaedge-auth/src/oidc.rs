@@ -12,13 +12,14 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use oauth2::{
-    basic::BasicClient, AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
-    RedirectUrl, Scope, TokenResponse, TokenUrl,
+    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl,
+    Scope, TokenResponse, TokenUrl, basic::BasicClient,
 };
 use openidconnect::{
+    AccessToken, ClientSecret as OidcClientSecret, EmptyAdditionalClaims,
+    EmptyAdditionalProviderMetadata, IssuerUrl, Nonce, OAuth2TokenResponse, ProviderMetadata,
+    UserInfoClaims,
     core::{CoreClient, CoreProviderMetadata, CoreTokenResponse},
-    AccessToken, ClientSecret as OidcClientSecret, EmptyAdditionalClaims, EmptyAdditionalProviderMetadata,
-    IssuerUrl, Nonce, OAuth2TokenResponse, ProviderMetadata, UserInfoClaims,
 };
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -109,7 +110,11 @@ pub trait OidcProviderClient: Send + Sync {
     async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokens>;
     async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo>;
     async fn revoke_token(&self, token: &str) -> Result<()>;
-    async fn get_logout_url(&self, id_token_hint: Option<&str>, post_logout_redirect_uri: Option<&str>) -> Result<String>;
+    async fn get_logout_url(
+        &self,
+        id_token_hint: Option<&str>,
+        post_logout_redirect_uri: Option<&str>,
+    ) -> Result<String>;
 }
 
 /// Generic OIDC client implementation.
@@ -121,8 +126,7 @@ pub struct GenericOidcClient {
 
 impl GenericOidcClient {
     pub async fn new(config: OidcConfig) -> Result<Self> {
-        let issuer_url = IssuerUrl::new(config.issuer_url.clone())
-            .context("Invalid issuer URL")?;
+        let issuer_url = IssuerUrl::new(config.issuer_url.clone()).context("Invalid issuer URL")?;
 
         let metadata = if config.discovery_enabled {
             CoreProviderMetadata::discover_async(issuer_url, HttpClient::new())
@@ -130,8 +134,10 @@ impl GenericOidcClient {
                 .context("Failed to discover OIDC metadata")?
         } else {
             CoreProviderMetadata::new(
-                AuthUrl::new(format!("{}/authorize", config.issuer_url)).context("Invalid auth endpoint")?,
-                TokenUrl::new(format!("{}/token", config.issuer_url)).context("Invalid token endpoint")?,
+                AuthUrl::new(format!("{}/authorize", config.issuer_url))
+                    .context("Invalid auth endpoint")?,
+                TokenUrl::new(format!("{}/token", config.issuer_url))
+                    .context("Invalid token endpoint")?,
                 None,
                 None,
                 None,
@@ -145,7 +151,9 @@ impl GenericOidcClient {
             ClientId::new(config.client_id.clone()),
             Some(OidcClientSecret::new(config.client_secret.clone())),
         )
-        .set_redirect_uri(RedirectUrl::new(config.redirect_url.clone()).context("Invalid redirect URL")?);
+        .set_redirect_uri(
+            RedirectUrl::new(config.redirect_url.clone()).context("Invalid redirect URL")?,
+        );
 
         Ok(Self {
             client,
@@ -168,10 +176,7 @@ impl OidcProviderClient for GenericOidcClient {
             (None, None)
         };
 
-        let mut auth_req = self.client.authorize_url(
-            || csrf_token,
-            || nonce,
-        );
+        let mut auth_req = self.client.authorize_url(|| csrf_token, || nonce);
 
         for scope in &self.config.scopes {
             auth_req = auth_req.add_scope(Scope::new(scope.clone()));
@@ -185,13 +190,17 @@ impl OidcProviderClient for GenericOidcClient {
     }
 
     async fn exchange_code(&self, code: &str, pkce_verifier: Option<&str>) -> Result<OidcTokens> {
-        let mut token_req = self.client.exchange_code(oauth2::AuthorizationCode::new(code.to_string()));
+        let mut token_req = self
+            .client
+            .exchange_code(oauth2::AuthorizationCode::new(code.to_string()));
 
         if let Some(verifier) = pkce_verifier {
             token_req = token_req.set_pkce_verifier(PkceCodeVerifier::new(verifier.to_string()));
         }
 
-        let token_response = token_req.request_async(&self.http_client).await
+        let token_response = token_req
+            .request_async(&self.http_client)
+            .await
             .context("Failed to exchange code for tokens")?;
 
         Ok(OidcTokens {
@@ -200,12 +209,18 @@ impl OidcProviderClient for GenericOidcClient {
             expires_in: token_response.expires_in().map(|d| d.as_secs()),
             refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
             id_token: token_response.id_token().map(|t| t.to_string()),
-            scope: token_response.scopes().map(|s| s.iter().map(|sc| sc.to_string()).collect::<Vec<_>>().join(" ")),
+            scope: token_response.scopes().map(|s| {
+                s.iter()
+                    .map(|sc| sc.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }),
         })
     }
 
     async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokens> {
-        let token_response = self.client
+        let token_response = self
+            .client
             .exchange_refresh_token(&oauth2::RefreshToken::new(refresh_token.to_string()))
             .request_async(&self.http_client)
             .await
@@ -217,12 +232,18 @@ impl OidcProviderClient for GenericOidcClient {
             expires_in: token_response.expires_in().map(|d| d.as_secs()),
             refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
             id_token: token_response.id_token().map(|t| t.to_string()),
-            scope: token_response.scopes().map(|s| s.iter().map(|sc| sc.to_string()).collect::<Vec<_>>().join(" ")),
+            scope: token_response.scopes().map(|s| {
+                s.iter()
+                    .map(|sc| sc.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }),
         })
     }
 
     async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo> {
-        let user_info: UserInfoClaims<EmptyAdditionalClaims, _> = self.client
+        let user_info: UserInfoClaims<EmptyAdditionalClaims, _> = self
+            .client
             .user_info(AccessToken::new(access_token.to_string()), None)
             .request_async(&self.http_client)
             .await
@@ -232,13 +253,28 @@ impl OidcProviderClient for GenericOidcClient {
             sub: user_info.subject().to_string(),
             email: user_info.email().map(|e| e.to_string()),
             email_verified: user_info.email_verified(),
-            name: user_info.name().map(|n| n.get(None).map(|s| s.to_string())).flatten(),
-            given_name: user_info.given_name().map(|n| n.get(None).map(|s| s.to_string())).flatten(),
-            family_name: user_info.family_name().map(|n| n.get(None).map(|s| s.to_string())).flatten(),
+            name: user_info
+                .name()
+                .map(|n| n.get(None).map(|s| s.to_string()))
+                .flatten(),
+            given_name: user_info
+                .given_name()
+                .map(|n| n.get(None).map(|s| s.to_string()))
+                .flatten(),
+            family_name: user_info
+                .family_name()
+                .map(|n| n.get(None).map(|s| s.to_string()))
+                .flatten(),
             preferred_username: user_info.preferred_username().map(|n| n.to_string()),
-            picture: user_info.picture().map(|p| p.get(None).map(|u| u.to_string())).flatten(),
+            picture: user_info
+                .picture()
+                .map(|p| p.get(None).map(|u| u.to_string()))
+                .flatten(),
             locale: user_info.locale().map(|l| l.to_string()),
-            updated_at: user_info.updated_at().map(|t| DateTime::from_timestamp(t as i64, 0)).flatten(),
+            updated_at: user_info
+                .updated_at()
+                .map(|t| DateTime::from_timestamp(t as i64, 0))
+                .flatten(),
             custom_claims: user_info.claims().clone(),
         })
     }
@@ -258,7 +294,11 @@ impl OidcProviderClient for GenericOidcClient {
         Ok(())
     }
 
-    async fn get_logout_url(&self, id_token_hint: Option<&str>, post_logout_redirect_uri: Option<&str>) -> Result<String> {
+    async fn get_logout_url(
+        &self,
+        id_token_hint: Option<&str>,
+        post_logout_redirect_uri: Option<&str>,
+    ) -> Result<String> {
         let metadata = self.client.provider_metadata();
         let logout_url = metadata
             .end_session_endpoint()
@@ -270,7 +310,11 @@ impl OidcProviderClient for GenericOidcClient {
         }
         if let Some(redirect) = post_logout_redirect_uri {
             let sep = if url.contains('?') { "&" } else { "?" };
-            url.push_str(&format!("{}post_logout_redirect_uri={}", sep, urlencoding::encode(redirect)));
+            url.push_str(&format!(
+                "{}post_logout_redirect_uri={}",
+                sep,
+                urlencoding::encode(redirect)
+            ));
         }
         Ok(url)
     }
@@ -285,7 +329,11 @@ pub struct KeycloakClient {
 impl KeycloakClient {
     pub async fn new(config: OidcConfig, realm: String) -> Result<Self> {
         let mut config = config;
-        config.issuer_url = format!("{}/realms/{}", config.issuer_url.trim_end_matches('/'), realm);
+        config.issuer_url = format!(
+            "{}/realms/{}",
+            config.issuer_url.trim_end_matches('/'),
+            realm
+        );
         Ok(Self {
             generic: GenericOidcClient::new(config).await?,
             realm,
@@ -310,8 +358,14 @@ impl OidcProviderClient for KeycloakClient {
     async fn revoke_token(&self, token: &str) -> Result<()> {
         self.generic.revoke_token(token).await
     }
-    async fn get_logout_url(&self, id_token_hint: Option<&str>, post_logout_redirect_uri: Option<&str>) -> Result<String> {
-        self.generic.get_logout_url(id_token_hint, post_logout_redirect_uri).await
+    async fn get_logout_url(
+        &self,
+        id_token_hint: Option<&str>,
+        post_logout_redirect_uri: Option<&str>,
+    ) -> Result<String> {
+        self.generic
+            .get_logout_url(id_token_hint, post_logout_redirect_uri)
+            .await
     }
 }
 
@@ -352,7 +406,9 @@ impl OidcManager {
     ) -> Result<()> {
         let client: Arc<dyn OidcProviderClient> = match config.provider {
             OidcProvider::Keycloak => {
-                let realm = config.metadata.as_ref()
+                let realm = config
+                    .metadata
+                    .as_ref()
                     .and_then(|m| m.issuer.split('/').last())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "master".to_string());
@@ -376,15 +432,22 @@ impl OidcManager {
         provider_name: &str,
         return_url: Option<String>,
     ) -> Result<String> {
-        let providers = self.providers.get(&tenant_id)
+        let providers = self
+            .providers
+            .get(&tenant_id)
             .ok_or_else(|| anyhow::anyhow!("No providers configured for tenant"))?;
 
-        let client = providers.get(provider_name)
+        let client = providers
+            .get(provider_name)
             .ok_or_else(|| anyhow::anyhow!("Provider not found"))?;
 
         let csrf_token = Uuid::new_v4().to_string();
         let nonce = Uuid::new_v4().to_string();
-        let pkce_verifier = if client.requires_pkce() { Some(PkceCodeVerifier::new_random().secret().clone()) } else { None };
+        let pkce_verifier = if client.requires_pkce() {
+            Some(PkceCodeVerifier::new_random().secret().clone())
+        } else {
+            None
+        };
 
         let state = OidcAuthState {
             csrf_token: csrf_token.clone(),
@@ -398,26 +461,31 @@ impl OidcManager {
 
         self.auth_states.insert(csrf_token.clone(), state);
 
-        let auth_url = client.get_authorization_url(&self.auth_states.get(&csrf_token).unwrap()).await?;
+        let auth_url = client
+            .get_authorization_url(&self.auth_states.get(&csrf_token).unwrap())
+            .await?;
         Ok(auth_url)
     }
 
     /// Complete OIDC authentication (callback).
-    pub async fn complete_auth(
-        &self,
-        csrf_token: &str,
-        code: &str,
-    ) -> Result<OidcAuthResult> {
-        let state = self.auth_states.remove(csrf_token)
+    pub async fn complete_auth(&self, csrf_token: &str, code: &str) -> Result<OidcAuthResult> {
+        let state = self
+            .auth_states
+            .remove(csrf_token)
             .ok_or_else(|| anyhow::anyhow!("Invalid or expired auth state"))?;
 
-        let providers = self.providers.get(&state.tenant_id)
+        let providers = self
+            .providers
+            .get(&state.tenant_id)
             .ok_or_else(|| anyhow::anyhow!("No providers for tenant"))?;
 
-        let client = providers.get(&state.provider.to_string())
+        let client = providers
+            .get(&state.provider.to_string())
             .ok_or_else(|| anyhow::anyhow!("Provider not found"))?;
 
-        let tokens = client.exchange_code(code, state.pkce_verifier.as_deref()).await?;
+        let tokens = client
+            .exchange_code(code, state.pkce_verifier.as_deref())
+            .await?;
         let user_info = client.get_user_info(&tokens.access_token).await?;
 
         Ok(OidcAuthResult {
@@ -429,11 +497,19 @@ impl OidcManager {
     }
 
     /// Refresh access token.
-    pub async fn refresh_tokens(&self, tenant_id: Uuid, provider_name: &str, refresh_token: &str) -> Result<OidcTokens> {
-        let providers = self.providers.get(&tenant_id)
+    pub async fn refresh_tokens(
+        &self,
+        tenant_id: Uuid,
+        provider_name: &str,
+        refresh_token: &str,
+    ) -> Result<OidcTokens> {
+        let providers = self
+            .providers
+            .get(&tenant_id)
             .ok_or_else(|| anyhow::anyhow!("No providers for tenant"))?;
 
-        let client = providers.get(provider_name)
+        let client = providers
+            .get(provider_name)
             .ok_or_else(|| anyhow::anyhow!("Provider not found"))?;
 
         client.refresh_token(refresh_token).await
@@ -447,13 +523,18 @@ impl OidcManager {
         id_token_hint: Option<&str>,
         post_logout_redirect_uri: Option<&str>,
     ) -> Result<String> {
-        let providers = self.providers.get(&tenant_id)
+        let providers = self
+            .providers
+            .get(&tenant_id)
             .ok_or_else(|| anyhow::anyhow!("No providers for tenant"))?;
 
-        let client = providers.get(provider_name)
+        let client = providers
+            .get(provider_name)
             .ok_or_else(|| anyhow::anyhow!("Provider not found"))?;
 
-        client.get_logout_url(id_token_hint, post_logout_redirect_uri).await
+        client
+            .get_logout_url(id_token_hint, post_logout_redirect_uri)
+            .await
     }
 }
 
@@ -485,7 +566,11 @@ mod tests {
             client_id: "test-client".to_string(),
             client_secret: "secret".to_string(),
             redirect_url: "https://app.example.com/callback".to_string(),
-            scopes: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
+            scopes: vec![
+                "openid".to_string(),
+                "profile".to_string(),
+                "email".to_string(),
+            ],
             pkce_enabled: true,
             discovery_enabled: true,
             metadata: None,

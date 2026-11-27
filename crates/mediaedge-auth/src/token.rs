@@ -11,13 +11,13 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use jsonwebtoken::{
-    decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation,
+    Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use mediaedge_config::Config;
 use crate::tenant::TenantManager;
+use mediaedge_config::Config;
 
 /// Token manager configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,17 +38,43 @@ pub struct TokenManagerConfig {
 impl TokenManagerConfig {
     pub fn from_config(config: &Config) -> Result<Self> {
         Ok(Self {
-            algorithm: config.auth.token.algorithm.clone().unwrap_or(TokenAlgorithm::Hs256),
+            algorithm: config
+                .auth
+                .token
+                .algorithm
+                .clone()
+                .unwrap_or(TokenAlgorithm::Hs256),
             hs256_secret: config.auth.token.hs256_secret.clone(),
             rs256_private_key: config.auth.token.rs256_private_key.clone(),
             rs256_public_key: config.auth.token.rs256_public_key.clone(),
             jwks_url: config.auth.token.jwks_url.clone(),
-            issuer: config.auth.token.issuer.clone().unwrap_or_else(|| "mediaedge".to_string()),
-            audience: config.auth.token.audience.clone().unwrap_or_else(|| "mediaedge-api".to_string()),
-            access_token_ttl: Duration::from_secs(config.auth.token.access_token_ttl_secs.unwrap_or(900)), // 15 min
-            refresh_token_ttl: Duration::from_secs(config.auth.token.refresh_token_ttl_secs.unwrap_or(604800)), // 7 days
-            api_key_prefix: config.auth.token.api_key_prefix.clone().unwrap_or_else(|| "me_".to_string()),
-            api_key_ttl: Duration::from_secs(config.auth.token.api_key_ttl_secs.unwrap_or(31536000)), // 1 year
+            issuer: config
+                .auth
+                .token
+                .issuer
+                .clone()
+                .unwrap_or_else(|| "mediaedge".to_string()),
+            audience: config
+                .auth
+                .token
+                .audience
+                .clone()
+                .unwrap_or_else(|| "mediaedge-api".to_string()),
+            access_token_ttl: Duration::from_secs(
+                config.auth.token.access_token_ttl_secs.unwrap_or(900),
+            ), // 15 min
+            refresh_token_ttl: Duration::from_secs(
+                config.auth.token.refresh_token_ttl_secs.unwrap_or(604800),
+            ), // 7 days
+            api_key_prefix: config
+                .auth
+                .token
+                .api_key_prefix
+                .clone()
+                .unwrap_or_else(|| "me_".to_string()),
+            api_key_ttl: Duration::from_secs(
+                config.auth.token.api_key_ttl_secs.unwrap_or(31536000),
+            ), // 1 year
         })
     }
 }
@@ -75,15 +101,15 @@ impl TokenAlgorithm {
 /// JWT claims.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,           // User ID or API key ID
+    pub sub: String, // User ID or API key ID
     pub tenant_id: Uuid,
-    pub roles: Vec<String>,    // Role names
+    pub roles: Vec<String>,       // Role names
     pub permissions: Vec<String>, // Permission strings
-    pub iat: i64,              // Issued at
-    pub exp: i64,              // Expiration
-    pub iss: String,           // Issuer
-    pub aud: String,           // Audience
-    pub jti: String,           // JWT ID (for revocation)
+    pub iat: i64,                 // Issued at
+    pub exp: i64,                 // Expiration
+    pub iss: String,              // Issuer
+    pub aud: String,              // Audience
+    pub jti: String,              // JWT ID (for revocation)
     pub token_type: TokenType,
     pub scope: Option<String>,
 }
@@ -186,7 +212,9 @@ impl TokenManager {
     fn load_keys(config: &TokenManagerConfig) -> Result<(EncodingKey, DecodingKey)> {
         match config.algorithm {
             TokenAlgorithm::Hs256 => {
-                let secret = config.hs256_secret.as_ref()
+                let secret = config
+                    .hs256_secret
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("HS256 secret not configured"))?;
                 Ok((
                     EncodingKey::from_secret(secret.as_bytes()),
@@ -194,9 +222,13 @@ impl TokenManager {
                 ))
             }
             TokenAlgorithm::Rs256 => {
-                let private_key = config.rs256_private_key.as_ref()
+                let private_key = config
+                    .rs256_private_key
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("RS256 private key not configured"))?;
-                let public_key = config.rs256_public_key.as_ref()
+                let public_key = config
+                    .rs256_public_key
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("RS256 public key not configured"))?;
 
                 Ok((
@@ -205,9 +237,13 @@ impl TokenManager {
                 ))
             }
             TokenAlgorithm::Es256 => {
-                let private_key = config.rs256_private_key.as_ref()
+                let private_key = config
+                    .rs256_private_key
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("ES256 private key not configured"))?;
-                let public_key = config.rs256_public_key.as_ref()
+                let public_key = config
+                    .rs256_public_key
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("ES256 public key not configured"))?;
 
                 Ok((
@@ -289,7 +325,8 @@ impl TokenManager {
         let key_hash = self.hash_api_key(&raw_key);
 
         let now = Utc::now();
-        let exp = expires_at.unwrap_or_else(|| now + chrono::Duration::from_std(self.config.api_key_ttl)?);
+        let exp = expires_at
+            .unwrap_or_else(|| now + chrono::Duration::from_std(self.config.api_key_ttl)?);
 
         let claims = Claims {
             sub: key_id.to_string(),
@@ -344,7 +381,11 @@ impl TokenManager {
         self.validate_token(token, TokenType::ApiKey).await
     }
 
-    async fn validate_token(&self, token: &str, expected_type: TokenType) -> Result<TokenData<Claims>> {
+    async fn validate_token(
+        &self,
+        token: &str,
+        expected_type: TokenType,
+    ) -> Result<TokenData<Claims>> {
         // Check revocation
         if let Some(header) = jsonwebtoken::decode_header(token).ok() {
             if let Some(jti) = header.jti {
@@ -365,7 +406,10 @@ impl TokenManager {
         }
 
         // Verify tenant exists and is active
-        let tenant = self.tenant_mgr.get_tenant(token_data.claims.tenant_id).await?
+        let tenant = self
+            .tenant_mgr
+            .get_tenant(token_data.claims.tenant_id)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Tenant not found"))?;
 
         if tenant.status != crate::tenant::TenantStatus::Active {
@@ -380,7 +424,8 @@ impl TokenManager {
         let token_data = self.validate_refresh_token(refresh_token).await?;
 
         // Revoke old refresh token
-        self.revoke_token(&token_data.claims.jti, "refresh".to_string()).await?;
+        self.revoke_token(&token_data.claims.jti, "refresh".to_string())
+            .await?;
 
         // Issue new token pair
         self.issue_user_tokens(
@@ -389,7 +434,8 @@ impl TokenManager {
             token_data.claims.roles,
             token_data.claims.permissions,
             token_data.claims.scope,
-        ).await
+        )
+        .await
     }
 
     /// Revoke a token (add to revocation list).
@@ -434,7 +480,9 @@ impl TokenManager {
 
     /// List API keys for a tenant.
     pub async fn list_api_keys(&self, tenant_id: Uuid) -> Result<Vec<ApiKey>> {
-        Ok(self.api_keys.iter()
+        Ok(self
+            .api_keys
+            .iter()
             .filter(|k| k.tenant_id == tenant_id)
             .map(|k| k.clone())
             .collect())
@@ -449,7 +497,10 @@ impl TokenManager {
             }
             TokenAlgorithm::Rs256 | TokenAlgorithm::Es256 => {
                 // Generate JWK from public key
-                let public_key_pem = self.config.rs256_public_key.as_ref()
+                let public_key_pem = self
+                    .config
+                    .rs256_public_key
+                    .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("Public key not configured"))?;
 
                 let jwk = jsonwebtoken::jwk::Jwk::from_rsa_pem(public_key_pem.as_bytes())?;
@@ -462,7 +513,7 @@ impl TokenManager {
 
     /// Hash an API key for storage.
     fn hash_api_key(&self, key: &str) -> String {
-        use ring::digest::{digest, SHA256};
+        use ring::digest::{SHA256, digest};
         let hash = digest(&SHA256, key.as_bytes());
         hex::encode(hash.as_ref())
     }

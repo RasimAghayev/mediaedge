@@ -7,8 +7,8 @@
 
 #![warn(missing_docs)]
 
-pub mod store;
 pub mod backends;
-pub mod tiering;
 pub mod erasure;
 pub mod multipart;
+pub mod store;
+pub mod tiering;

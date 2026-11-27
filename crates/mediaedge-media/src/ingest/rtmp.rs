@@ -25,8 +25,8 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use tracing::{debug, error, info, warn};
 
 use crate::fragment::{Fragment, FragmentBroadcasterRegistry, FragmentMeta, StreamId};
-use mediaedge_observability::MetricsRegistry;
 use mediaedge_config::types::RtmpConfig;
+use mediaedge_observability::MetricsRegistry;
 
 /// RTMP message types.
 mod rtmp_message {
@@ -110,7 +110,7 @@ pub async fn run_rtmp_server(
     loop {
         let (socket, addr) = listener.accept().await?;
         let state = state.clone();
-        
+
         tokio::spawn(async move {
             if let Err(e) = handle_rtmp_connection(socket, addr, state).await {
                 error!("RTMP connection error from {}: {}", addr, e);
@@ -143,7 +143,7 @@ async fn handle_rtmp_connection(
                 match result {
                     ServerSessionResult::Connect { app, args, .. } => {
                         app_name = Some(app);
-                        
+
                         // Extract stream key from connect arguments
                         if let Some(key) = args.get("streamkey").and_then(|v| v.as_str()) {
                             stream_key = Some(key.to_string());
@@ -160,7 +160,7 @@ async fn handle_rtmp_connection(
                     ServerSessionResult::Publish { name, kind, .. } => {
                         // Validate stream key
                         let key = stream_key.clone().unwrap_or_else(|| name.clone());
-                        
+
                         if key.len() > state.config.max_stream_key_len {
                             warn!("Stream key too long: {} chars", key.len());
                             session.publish_error("Stream key too long").await?;
@@ -193,22 +193,23 @@ async fn handle_rtmp_connection(
                             last_ping: Instant::now(),
                         };
                         session_info = Some(info);
-                        state.active_sessions.insert(key.clone(), session_info.unwrap());
+                        state
+                            .active_sessions
+                            .insert(key.clone(), session_info.unwrap());
 
                         // Update metrics
-                        state.metrics.counter("ingest_active_streams", "Active ingest streams").increment(1);
+                        state
+                            .metrics
+                            .counter("ingest_active_streams", "Active ingest streams")
+                            .increment(1);
                     }
                     ServerSessionResult::AudioData { data, timestamp } => {
                         if let Some(ref mut info) = session_info {
                             info.bytes_received += data.len() as u64;
                             info.audio_frames += 1;
-                            
+
                             // Convert to fragment and ingest
-                            let fragment = audio_data_to_fragment(
-                                &info.stream_id,
-                                data,
-                                timestamp,
-                            );
+                            let fragment = audio_data_to_fragment(&info.stream_id, data, timestamp);
                             state.registry.ingest(info.stream_id.clone(), fragment);
                         }
                     }
@@ -216,10 +217,10 @@ async fn handle_rtmp_connection(
                         if let Some(ref mut info) = session_info {
                             info.bytes_received += data.len() as u64;
                             info.video_frames += 1;
-                            
+
                             // Check if keyframe
                             let is_keyframe = is_video_keyframe(&data);
-                            
+
                             // Convert to fragment and ingest
                             let fragment = video_data_to_fragment(
                                 &info.stream_id,
@@ -230,7 +231,11 @@ async fn handle_rtmp_connection(
                             state.registry.ingest(info.stream_id.clone(), fragment);
                         }
                     }
-                    ServerSessionResult::Amf0Command { command, transaction_id, args } => {
+                    ServerSessionResult::Amf0Command {
+                        command,
+                        transaction_id,
+                        args,
+                    } => {
                         match command.as_str() {
                             rtmp_command::ON_METADATA | rtmp_command::SET_DATAFRAME => {
                                 // Parse metadata
@@ -242,7 +247,10 @@ async fn handle_rtmp_connection(
                                 // Stop publishing
                                 if let Some(ref info) = session_info {
                                     state.active_sessions.remove(&info.stream_key);
-                                    state.metrics.counter("ingest_active_streams", "Active ingest streams").decrement(1);
+                                    state
+                                        .metrics
+                                        .counter("ingest_active_streams", "Active ingest streams")
+                                        .decrement(1);
                                     info!("RTMP unpublish: {}", info.stream_key);
                                 }
                             }
@@ -257,9 +265,13 @@ async fn handle_rtmp_connection(
                             parse_metadata(&info.stream_id, &data);
                         }
                     }
-                    ServerSessionResult::UserControl { event_type, event_data } => {
+                    ServerSessionResult::UserControl {
+                        event_type,
+                        event_data,
+                    } => {
                         // Handle ping/pong
-                        if event_type == 0 { // StreamBegin
+                        if event_type == 0 {
+                            // StreamBegin
                             if let Some(ref mut info) = session_info {
                                 info.last_ping = Instant::now();
                             }
@@ -287,9 +299,16 @@ async fn handle_rtmp_connection(
     // Cleanup
     if let Some(info) = session_info {
         state.active_sessions.remove(&info.stream_key);
-        state.metrics.counter("ingest_active_streams", "Active ingest streams").decrement(1);
+        state
+            .metrics
+            .counter("ingest_active_streams", "Active ingest streams")
+            .decrement(1);
         state.registry.remove(&info.stream_id);
-        info!("RTMP session ended: {} (duration: {:?})", info.stream_key, info.started_at.elapsed());
+        info!(
+            "RTMP session ended: {} (duration: {:?})",
+            info.stream_key,
+            info.started_at.elapsed()
+        );
     }
 
     Ok(())
@@ -303,18 +322,14 @@ async fn validate_stream_key(key: &str) -> bool {
 }
 
 /// Convert audio data to fragment.
-fn audio_data_to_fragment(
-    stream_id: &StreamId,
-    data: Bytes,
-    timestamp: RtmpTimestamp,
-) -> Fragment {
+fn audio_data_to_fragment(stream_id: &StreamId, data: Bytes, timestamp: RtmpTimestamp) -> Fragment {
     Fragment {
         meta: FragmentMeta {
             stream_id: stream_id.clone(),
             sequence: timestamp.0 as u64,
             timestamp: Duration::from_millis(timestamp.0 as u64),
             duration: Duration::from_millis(20), // ~20ms per audio frame
-            is_keyframe: true, // Audio frames are effectively keyframes
+            is_keyframe: true,                   // Audio frames are effectively keyframes
             size: data.len(),
             ingest_time: Instant::now(),
         },
@@ -350,7 +365,7 @@ fn is_video_keyframe(data: &[u8]) -> bool {
     if data.len() < 5 {
         return false;
     }
-    
+
     // Check for H.264/AVC NAL unit
     // First byte: forbidden_zero_bit(1) | nal_ref_idc(2) | nal_unit_type(5)
     let nal_type = data[0] & 0x1F;
@@ -391,9 +406,9 @@ mod tests {
         let stream_id = StreamId::new("test");
         let data = Bytes::from(vec![0u8; 1024]);
         let timestamp = RtmpTimestamp(1000);
-        
+
         let fragment = audio_data_to_fragment(&stream_id, data.clone(), timestamp);
-        
+
         assert_eq!(fragment.meta.stream_id, stream_id);
         assert_eq!(fragment.meta.timestamp, Duration::from_millis(1000));
         assert!(fragment.meta.is_keyframe);
@@ -404,9 +419,9 @@ mod tests {
         let stream_id = StreamId::new("test");
         let data = Bytes::from(vec![0x65, 0x88, 0x80]); // IDR frame
         let timestamp = RtmpTimestamp(2000);
-        
+
         let fragment = video_data_to_fragment(&stream_id, data.clone(), timestamp, true);
-        
+
         assert_eq!(fragment.meta.stream_id, stream_id);
         assert_eq!(fragment.meta.timestamp, Duration::from_millis(2000));
         assert!(fragment.meta.is_keyframe);

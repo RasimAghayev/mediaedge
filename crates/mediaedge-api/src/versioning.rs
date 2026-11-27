@@ -6,12 +6,12 @@ use std::str::FromStr;
 use std::task::{Context, Poll};
 
 use axum::{
+    Json,
     body::Body,
     extract::{MatchedPath, Request},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use pin_project_lite::pin_project;
 use serde_json::json;
@@ -199,7 +199,7 @@ fn extract_version_from_path(path: &str, config: &VersioningConfig) -> Option<Ap
 fn negotiate_version_from_accept(accept: &str, config: &VersioningConfig) -> Option<ApiVersion> {
     for part in accept.split(',') {
         let part = part.trim();
-        
+
         // Check for vendor-specific media type: application/vnd.mediaedge.v1+json
         if part.starts_with("application/vnd.mediaedge.v") {
             if let Some(version_part) = part.strip_prefix("application/vnd.mediaedge.v") {
@@ -207,7 +207,7 @@ fn negotiate_version_from_accept(accept: &str, config: &VersioningConfig) -> Opt
                 return ApiVersion::from_header(version_str);
             }
         }
-        
+
         // Check for version parameter: application/json; version=1
         if part.starts_with("application/json") {
             for param in part.split(';').skip(1) {
@@ -235,7 +235,10 @@ impl<S> VersioningMiddleware<S> {
 
 impl<S> Service<Request> for VersioningMiddleware<S>
 where
-    S: Service<Request, Response = Response, Error = std::convert::Infallible> + Clone + Send + 'static,
+    S: Service<Request, Response = Response, Error = std::convert::Infallible>
+        + Clone
+        + Send
+        + 'static,
     S::Future: Send + 'static,
 {
     type Response = Response;
@@ -253,18 +256,18 @@ where
         Box::pin(async move {
             // Extract version info
             let version_info = extract_version(&req, &config);
-            
+
             // Add version info to request extensions
             req.extensions_mut().insert(version_info.clone());
-            
+
             // Add version header to response
             let mut response = inner.call(req).await?;
-            
+
             response.headers_mut().insert(
                 HeaderName::from_static("x-api-version"),
                 HeaderValue::from_str(version_info.version.as_str()).unwrap(),
             );
-            
+
             // Add deprecation warning header if deprecated
             if version_info.deprecated {
                 response.headers_mut().insert(
@@ -273,10 +276,14 @@ where
                 );
                 response.headers_mut().insert(
                     HeaderName::from_static("warning"),
-                    HeaderValue::from_str(&format!("299 - \"API version {} is deprecated\"", version_info.version.as_str())).unwrap(),
+                    HeaderValue::from_str(&format!(
+                        "299 - \"API version {} is deprecated\"",
+                        version_info.version.as_str()
+                    ))
+                    .unwrap(),
                 );
             }
-            
+
             Ok(response)
         })
     }
@@ -336,7 +343,8 @@ pub fn require_version(version: ApiVersion) -> impl Fn(&Request) -> Result<(), R
                     "error": "version_not_detected",
                     "message": "API version could not be determined",
                 })),
-            ).into_response())
+            )
+                .into_response())
         }
     }
 }
@@ -353,7 +361,7 @@ mod tests {
             .with_supported_versions(vec![ApiVersion::V1, ApiVersion::V2])
             .with_header_name("X-Custom-Version".to_string())
             .with_query_param("version".to_string());
-        
+
         assert_eq!(config.default_version, ApiVersion::V2);
         assert_eq!(config.header_name, "X-Custom-Version");
         assert_eq!(config.query_param, "version");
@@ -373,9 +381,15 @@ mod tests {
     #[test]
     fn test_extract_version_from_path() {
         let config = VersioningConfig::new();
-        
-        assert_eq!(extract_version_from_path("/api/v1/streams", &config), Some(ApiVersion::V1));
-        assert_eq!(extract_version_from_path("/api/v2/streams", &config), Some(ApiVersion::V2));
+
+        assert_eq!(
+            extract_version_from_path("/api/v1/streams", &config),
+            Some(ApiVersion::V1)
+        );
+        assert_eq!(
+            extract_version_from_path("/api/v2/streams", &config),
+            Some(ApiVersion::V2)
+        );
         assert_eq!(extract_version_from_path("/api/v3/streams", &config), None);
         assert_eq!(extract_version_from_path("/streams", &config), None);
     }
@@ -383,7 +397,7 @@ mod tests {
     #[test]
     fn test_negotiate_version_from_accept() {
         let config = VersioningConfig::new();
-        
+
         // Vendor-specific media type
         assert_eq!(
             negotiate_version_from_accept("application/vnd.mediaedge.v1+json", &config),
@@ -393,7 +407,7 @@ mod tests {
             negotiate_version_from_accept("application/vnd.mediaedge.v2+json", &config),
             Some(ApiVersion::V2)
         );
-        
+
         // Version parameter
         assert_eq!(
             negotiate_version_from_accept("application/json; version=1", &config),
@@ -403,13 +417,16 @@ mod tests {
             negotiate_version_from_accept("application/json; version=2", &config),
             Some(ApiVersion::V2)
         );
-        
+
         // Multiple types
         assert_eq!(
-            negotiate_version_from_accept("application/vnd.mediaedge.v2+json, application/json", &config),
+            negotiate_version_from_accept(
+                "application/vnd.mediaedge.v2+json, application/json",
+                &config
+            ),
             Some(ApiVersion::V2)
         );
-        
+
         // No version
         assert_eq!(
             negotiate_version_from_accept("application/json", &config),

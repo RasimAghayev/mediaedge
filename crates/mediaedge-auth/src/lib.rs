@@ -27,12 +27,12 @@ use color_eyre::eyre::Result;
 use mediaedge_config::Config;
 use mediaedge_observability::tracing as obs_tracing;
 
-use self::tenant::{TenantManager, TenantManagerConfig};
-use self::rbac::RbacManager;
-use self::oidc::OidcManager;
-use self::mfa::MfaManager;
-use self::secrets::SecretsManager;
 use self::audit::AuditLogger;
+use self::mfa::MfaManager;
+use self::oidc::OidcManager;
+use self::rbac::RbacManager;
+use self::secrets::SecretsManager;
+use self::tenant::{TenantManager, TenantManagerConfig};
 use self::token::TokenManager;
 
 /// Core authentication and authorization service.
@@ -56,7 +56,8 @@ impl AuthService {
     pub async fn new(config: Config) -> Result<Self> {
         let config_arc = Arc::new(ArcSwap::from_pointee(config.clone()));
 
-        let tenant_mgr = Arc::new(TenantManager::new(TenantManagerConfig::from_config(&config)?).await?);
+        let tenant_mgr =
+            Arc::new(TenantManager::new(TenantManagerConfig::from_config(&config)?).await?);
         let rbac_mgr = Arc::new(RbacManager::new(tenant_mgr.clone()).await?);
         let oidc_mgr = Arc::new(OidcManager::new(&config).await?);
         let mfa_mgr = Arc::new(MfaManager::new(&config).await?);
@@ -88,13 +89,27 @@ impl AuthService {
     }
 
     // Subsystem accessors
-    pub fn tenant_manager(&self) -> &Arc<TenantManager> { &self.tenant_mgr }
-    pub fn rbac_manager(&self) -> &Arc<RbacManager> { &self.rbac_mgr }
-    pub fn oidc_manager(&self) -> &Arc<OidcManager> { &self.oidc_mgr }
-    pub fn mfa_manager(&self) -> &Arc<MfaManager> { &self.mfa_mgr }
-    pub fn secrets_manager(&self) -> &Arc<SecretsManager> { &self.secrets_mgr }
-    pub fn audit_logger(&self) -> &Arc<AuditLogger> { &self.audit_log }
-    pub fn token_manager(&self) -> &Arc<TokenManager> { &self.token_mgr }
+    pub fn tenant_manager(&self) -> &Arc<TenantManager> {
+        &self.tenant_mgr
+    }
+    pub fn rbac_manager(&self) -> &Arc<RbacManager> {
+        &self.rbac_mgr
+    }
+    pub fn oidc_manager(&self) -> &Arc<OidcManager> {
+        &self.oidc_mgr
+    }
+    pub fn mfa_manager(&self) -> &Arc<MfaManager> {
+        &self.mfa_mgr
+    }
+    pub fn secrets_manager(&self) -> &Arc<SecretsManager> {
+        &self.secrets_mgr
+    }
+    pub fn audit_logger(&self) -> &Arc<AuditLogger> {
+        &self.audit_log
+    }
+    pub fn token_manager(&self) -> &Arc<TokenManager> {
+        &self.token_mgr
+    }
 }
 
 /// Initialize tracing for auth crate.

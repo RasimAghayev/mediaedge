@@ -220,9 +220,13 @@ impl TenantManager {
                 id: row.id,
                 name: row.name,
                 slug: row.slug,
-                status: serde_json::from_value(serde_json::to_value(row.status)?).unwrap_or(TenantStatus::Active),
+                status: serde_json::from_value(serde_json::to_value(row.status)?)
+                    .unwrap_or(TenantStatus::Active),
                 quotas: serde_json::from_value(row.quotas).unwrap_or_default(),
-                branding: row.branding.map(|b| serde_json::from_value(b).ok()).flatten(),
+                branding: row
+                    .branding
+                    .map(|b| serde_json::from_value(b).ok())
+                    .flatten(),
                 settings: serde_json::from_value(row.settings).unwrap_or_default(),
                 created_at: row.created_at,
                 updated_at: row.updated_at,
@@ -262,7 +266,12 @@ impl TenantManager {
         .context("Failed to insert tenant")?;
 
         self.cache.insert(tenant.id, tenant.clone());
-        self.audit_log(&tenant.id, "tenant.created", serde_json::json!({ "tenant_id": tenant.id })).await;
+        self.audit_log(
+            &tenant.id,
+            "tenant.created",
+            serde_json::json!({ "tenant_id": tenant.id }),
+        )
+        .await;
 
         Ok(tenant)
     }
@@ -288,9 +297,13 @@ impl TenantManager {
             id: row.id,
             name: row.name,
             slug: row.slug,
-            status: serde_json::from_value(serde_json::to_value(row.status)?).unwrap_or(TenantStatus::Active),
+            status: serde_json::from_value(serde_json::to_value(row.status)?)
+                .unwrap_or(TenantStatus::Active),
             quotas: serde_json::from_value(row.quotas).unwrap_or_default(),
-            branding: row.branding.map(|b| serde_json::from_value(b).ok()).flatten(),
+            branding: row
+                .branding
+                .map(|b| serde_json::from_value(b).ok())
+                .flatten(),
             settings: serde_json::from_value(row.settings).unwrap_or_default(),
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -328,9 +341,13 @@ impl TenantManager {
             id: row.id,
             name: row.name,
             slug: row.slug,
-            status: serde_json::from_value(serde_json::to_value(row.status)?).unwrap_or(TenantStatus::Active),
+            status: serde_json::from_value(serde_json::to_value(row.status)?)
+                .unwrap_or(TenantStatus::Active),
             quotas: serde_json::from_value(row.quotas).unwrap_or_default(),
-            branding: row.branding.map(|b| serde_json::from_value(b).ok()).flatten(),
+            branding: row
+                .branding
+                .map(|b| serde_json::from_value(b).ok())
+                .flatten(),
             settings: serde_json::from_value(row.settings).unwrap_or_default(),
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -346,7 +363,9 @@ impl TenantManager {
 
     /// Update tenant.
     pub async fn update_tenant(&self, id: Uuid, updates: TenantUpdate) -> Result<Tenant> {
-        let mut tenant = self.get_tenant(id).await?
+        let mut tenant = self
+            .get_tenant(id)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Tenant not found"))?;
 
         if let Some(name) = updates.name {
@@ -385,14 +404,21 @@ impl TenantManager {
         .await?;
 
         self.cache.insert(tenant.id, tenant.clone());
-        self.audit_log(&tenant.id, "tenant.updated", serde_json::json!({ "tenant_id": tenant.id })).await;
+        self.audit_log(
+            &tenant.id,
+            "tenant.updated",
+            serde_json::json!({ "tenant_id": tenant.id }),
+        )
+        .await;
 
         Ok(tenant)
     }
 
     /// Delete tenant (soft delete).
     pub async fn delete_tenant(&self, id: Uuid) -> Result<()> {
-        let mut tenant = self.get_tenant(id).await?
+        let mut tenant = self
+            .get_tenant(id)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Tenant not found"))?;
 
         tenant.status = TenantStatus::Deleted;
@@ -414,7 +440,12 @@ impl TenantManager {
         .await?;
 
         self.cache.remove(&id);
-        self.audit_log(&id, "tenant.deleted", serde_json::json!({ "tenant_id": id })).await;
+        self.audit_log(
+            &id,
+            "tenant.deleted",
+            serde_json::json!({ "tenant_id": id }),
+        )
+        .await;
 
         Ok(())
     }
@@ -435,23 +466,37 @@ impl TenantManager {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|row| Tenant {
-            id: row.id,
-            name: row.name,
-            slug: row.slug,
-            status: serde_json::from_value(serde_json::to_value(row.status)?).unwrap_or(TenantStatus::Active),
-            quotas: serde_json::from_value(row.quotas).unwrap_or_default(),
-            branding: row.branding.map(|b| serde_json::from_value(b).ok()).flatten(),
-            settings: serde_json::from_value(row.settings).unwrap_or_default(),
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            deleted_at: row.deleted_at,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| Tenant {
+                id: row.id,
+                name: row.name,
+                slug: row.slug,
+                status: serde_json::from_value(serde_json::to_value(row.status)?)
+                    .unwrap_or(TenantStatus::Active),
+                quotas: serde_json::from_value(row.quotas).unwrap_or_default(),
+                branding: row
+                    .branding
+                    .map(|b| serde_json::from_value(b).ok())
+                    .flatten(),
+                settings: serde_json::from_value(row.settings).unwrap_or_default(),
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                deleted_at: row.deleted_at,
+            })
+            .collect())
     }
 
     /// Check quota for a tenant.
-    pub async fn check_quota(&self, tenant_id: Uuid, resource: &str, requested: u64) -> Result<bool> {
-        let tenant = self.get_tenant(tenant_id).await?
+    pub async fn check_quota(
+        &self,
+        tenant_id: Uuid,
+        resource: &str,
+        requested: u64,
+    ) -> Result<bool> {
+        let tenant = self
+            .get_tenant(tenant_id)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Tenant not found"))?;
 
         let current = self.get_current_usage(tenant_id, resource).await?;
@@ -461,7 +506,12 @@ impl TenantManager {
             "storage_gb" => tenant.quotas.max_storage_gb as u64,
             "transcode_jobs" => tenant.quotas.max_transcode_jobs as u64,
             "api_keys" => tenant.quotas.max_api_keys as u64,
-            _ => tenant.quotas.custom.get(resource).copied().unwrap_or(u64::MAX),
+            _ => tenant
+                .quotas
+                .custom
+                .get(resource)
+                .copied()
+                .unwrap_or(u64::MAX),
         };
 
         Ok(current + requested <= limit)

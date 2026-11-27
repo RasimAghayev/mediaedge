@@ -9,10 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::ai::{
-    capacity::CapacityPlanner,
-    scheduler::AiSchedulingService,
-};
+use crate::ai::{capacity::CapacityPlanner, scheduler::AiSchedulingService};
 
 /// AI manager orchestrating all AI services.
 pub struct AiManager {
@@ -42,8 +39,12 @@ impl AiManager {
     }
 
     // Accessors
-    pub fn scheduler(&self) -> &Arc<AiSchedulingService> { &self.scheduler }
-    pub fn capacity_planner(&self) -> &Arc<CapacityPlanner> { &self.capacity_planner }
+    pub fn scheduler(&self) -> &Arc<AiSchedulingService> {
+        &self.scheduler
+    }
+    pub fn capacity_planner(&self) -> &Arc<CapacityPlanner> {
+        &self.capacity_planner
+    }
 }
 
 impl Default for AiManager {

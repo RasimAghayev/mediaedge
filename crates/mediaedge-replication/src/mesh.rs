@@ -17,7 +17,7 @@ use dashmap::DashMap;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
@@ -54,11 +54,21 @@ pub struct MeshConfig {
     pub encryption_enabled: bool,
 }
 
-fn default_mesh_port() -> u16 { 7947 }
-fn default_max_packet_size() -> usize { 1400 }
-fn default_sync_interval() -> u64 { 300 }
-fn default_max_peers() -> usize { 100 }
-fn default_true() -> bool { true }
+fn default_mesh_port() -> u16 {
+    7947
+}
+fn default_max_packet_size() -> usize {
+    1400
+}
+fn default_sync_interval() -> u64 {
+    300
+}
+fn default_max_peers() -> usize {
+    100
+}
+fn default_true() -> bool {
+    true
+}
 
 impl Default for MeshConfig {
     fn default() -> Self {
@@ -94,9 +104,15 @@ pub struct FecConfig {
     pub systematic: bool,
 }
 
-fn default_fec_source_symbols() -> usize { 32 }
-fn default_fec_repair_symbols() -> usize { 16 }
-fn default_fec_symbol_size() -> usize { 1024 }
+fn default_fec_source_symbols() -> usize {
+    32
+}
+fn default_fec_repair_symbols() -> usize {
+    16
+}
+fn default_fec_symbol_size() -> usize {
+    1024
+}
 
 impl Default for FecConfig {
     fn default() -> Self {
@@ -264,13 +280,33 @@ struct PendingSync {
 /// Mesh events.
 #[derive(Debug, Clone)]
 pub enum MeshEvent {
-    PeerConnected { peer_id: String },
-    PeerDisconnected { peer_id: String },
-    SyncStarted { request_id: String, peer_id: String },
-    SyncCompleted { request_id: String, objects_synced: usize },
-    SyncFailed { request_id: String, error: String },
-    CacheUpdated { stream_id: String, object_id: String },
-    FecRepair { stream_id: String, segment_index: u64, symbols_received: usize },
+    PeerConnected {
+        peer_id: String,
+    },
+    PeerDisconnected {
+        peer_id: String,
+    },
+    SyncStarted {
+        request_id: String,
+        peer_id: String,
+    },
+    SyncCompleted {
+        request_id: String,
+        objects_synced: usize,
+    },
+    SyncFailed {
+        request_id: String,
+        error: String,
+    },
+    CacheUpdated {
+        stream_id: String,
+        object_id: String,
+    },
+    FecRepair {
+        stream_id: String,
+        segment_index: u64,
+        symbols_received: usize,
+    },
 }
 
 /// FEC encoder using RaptorQ-like fountain codes.
@@ -299,7 +335,7 @@ impl FecEncoder {
 
         // Split into source symbols
         let mut symbols = Vec::with_capacity(source_symbols + repair_symbols);
-        
+
         for i in 0..source_symbols {
             let start = i * symbol_size;
             let end = std::cmp::min(start + symbol_size, padded.len());
@@ -366,9 +402,9 @@ impl MeshManager {
     ) -> anyhow::Result<Self> {
         let bind_addr = format!("{}:{}", config.bind_address, config.port).parse::<SocketAddr>()?;
         let socket = Arc::new(UdpSocket::bind(bind_addr).await?);
-        
+
         let fec_encoder = Arc::new(FecEncoder::new(config.fec.clone()));
-        
+
         let (event_tx, event_rx) = mpsc::channel(1000);
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
@@ -412,10 +448,10 @@ impl MeshManager {
     pub async fn stop(&self) -> anyhow::Result<()> {
         info!("Stopping replication mesh");
         let _ = self.shutdown_tx.send(true);
-        
+
         // Send goodbye to peers
         self.broadcast_goodbye().await?;
-        
+
         Ok(())
     }
 
@@ -483,7 +519,12 @@ impl MeshManager {
         local_peer_id: &str,
     ) {
         match msg {
-            MeshMessage::Hello { peer_id, region, datacenter, capabilities } => {
+            MeshMessage::Hello {
+                peer_id,
+                region,
+                datacenter,
+                capabilities,
+            } => {
                 if peer_id == local_peer_id {
                     return;
                 }
@@ -510,7 +551,9 @@ impl MeshManager {
                 let _ = Self::send_message(&socket, &ack, from).await;
 
                 let _ = event_tx.try_send(MeshEvent::PeerConnected { peer_id });
-                metrics.counter("mesh_peers_connected_total", "Connected peers").increment(1);
+                metrics
+                    .counter("mesh_peers_connected_total", "Connected peers")
+                    .increment(1);
             }
 
             MeshMessage::HelloAck { peer_id, accepted } => {
@@ -524,44 +567,65 @@ impl MeshManager {
                 }
             }
 
-            MeshMessage::SyncRequest { request_id, stream_ids, from_version } => {
+            MeshMessage::SyncRequest {
+                request_id,
+                stream_ids,
+                from_version,
+            } => {
                 // Handle sync request
                 Self::handle_sync_request(
-                    request_id, stream_ids, from_version, from,
-                    local_cache, pending_syncs, event_tx, metrics
-                ).await;
+                    request_id,
+                    stream_ids,
+                    from_version,
+                    from,
+                    local_cache,
+                    pending_syncs,
+                    event_tx,
+                    metrics,
+                )
+                .await;
             }
 
-            MeshMessage::SyncResponse { request_id, objects, more } => {
+            MeshMessage::SyncResponse {
+                request_id,
+                objects,
+                more,
+            } => {
                 // Handle sync response
                 if let Some(mut pending) = pending_syncs.get_mut(&request_id) {
                     pending.sent_objects += objects.len();
-                    
+
                     for obj in objects {
                         local_cache.insert(obj.object_id.clone(), obj);
                     }
 
                     if !more {
                         pending_syncs.remove(&request_id);
-                        let _ = event_tx.try_send(MeshEvent::SyncCompleted { 
-                            request_id, 
-                            objects_synced: pending.sent_objects 
+                        let _ = event_tx.try_send(MeshEvent::SyncCompleted {
+                            request_id,
+                            objects_synced: pending.sent_objects,
                         });
-                        metrics.counter("mesh_sync_completed_total", "Completed syncs").increment(1);
+                        metrics
+                            .counter("mesh_sync_completed_total", "Completed syncs")
+                            .increment(1);
                     }
                 }
             }
 
-            MeshMessage::DeltaSync { stream_id, base_version, changes } => {
+            MeshMessage::DeltaSync {
+                stream_id,
+                base_version,
+                changes,
+            } => {
                 // Apply delta changes
                 for change in changes {
                     match change.change_type {
                         ChangeType::Added | ChangeType::Updated => {
                             if let Some(obj) = change.object {
                                 local_cache.insert(obj.object_id.clone(), obj);
-                                let _ = event_tx.try_send(MeshEvent::CacheUpdated { 
-                                    stream_id: stream_id.clone(), 
-                                    object_id: change.object_id 
+                                let _ = event_tx.try_send(MeshEvent::CacheUpdated {
+                                    stream_id: stream_id.clone(),
+                                    object_id: change.object_id,
                                 });
                             }
                         }
@@ -570,18 +634,28 @@ impl MeshManager {
                         }
                     }
                 }
-                metrics.counter("mesh_delta_sync_total", "Delta syncs applied").increment(1);
+                metrics
+                    .counter("mesh_delta_sync_total", "Delta syncs applied")
+                    .increment(1);
             }
 
-            MeshMessage::FecBlock { block_id, stream_id, segment_index, symbols, is_repair } => {
+            MeshMessage::FecBlock {
+                block_id,
+                stream_id,
+                segment_index,
+                symbols,
+                is_repair,
+            } => {
                 // Handle FEC block for cache repair
-                metrics.counter("mesh_fec_blocks_received_total", "FEC blocks received").increment(1);
-                
+                metrics
+                    .counter("mesh_fec_blocks_received_total", "FEC blocks received")
+                    .increment(1);
+
                 if is_repair {
-                    let _ = event_tx.try_send(MeshEvent::FecRepair { 
-                        stream_id, 
-                        segment_index, 
-                        symbols_received: symbols.len() 
+                    let _ = event_tx.try_send(MeshEvent::FecRepair {
+                        stream_id,
+                        segment_index,
+                        symbols_received: symbols.len(),
                     });
                 }
             }
@@ -646,8 +720,13 @@ impl MeshManager {
             let _ = Self::send_message(&socket, &response, from).await;
         }
 
-        let _ = event_tx.try_send(MeshEvent::SyncStarted { request_id, peer_id: from.to_string() });
-        metrics.counter("mesh_sync_requests_total", "Sync requests").increment(1);
+        let _ = event_tx.try_send(MeshEvent::SyncStarted {
+            request_id,
+            peer_id: from.to_string(),
+        });
+        metrics
+            .counter("mesh_sync_requests_total", "Sync requests")
+            .increment(1);
     }
 
     /// Start heartbeat.
@@ -768,7 +847,11 @@ impl MeshManager {
     }
 
     /// Send message to address.
-    async fn send_message(socket: &Arc<UdpSocket>, msg: &MeshMessage, addr: SocketAddr) -> anyhow::Result<()> {
+    async fn send_message(
+        socket: &Arc<UdpSocket>,
+        msg: &MeshMessage,
+        addr: SocketAddr,
+    ) -> anyhow::Result<()> {
         let data = serde_json::to_vec(msg)?;
         if data.len() > 65536 {
             return Err(anyhow::anyhow!("Message too large"));
@@ -793,8 +876,14 @@ impl MeshManager {
     }
 
     /// Request sync from peer.
-    pub async fn request_sync(&self, peer_id: &str, stream_ids: Vec<String>) -> anyhow::Result<String> {
-        let peer = self.peers.get(peer_id)
+    pub async fn request_sync(
+        &self,
+        peer_id: &str,
+        stream_ids: Vec<String>,
+    ) -> anyhow::Result<String> {
+        let peer = self
+            .peers
+            .get(peer_id)
             .ok_or_else(|| anyhow::anyhow!("Peer not found"))?;
 
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -807,7 +896,7 @@ impl MeshManager {
         };
 
         Self::send_message(&self.socket, &msg, peer.address).await?;
-        
+
         Ok(request_id)
     }
 
@@ -819,7 +908,9 @@ impl MeshManager {
         segment_index: u64,
         data: &[u8],
     ) -> anyhow::Result<()> {
-        let peer = self.peers.get(peer_id)
+        let peer = self
+            .peers
+            .get(peer_id)
             .ok_or_else(|| anyhow::anyhow!("Peer not found"))?;
 
         let symbols = self.fec_encoder.encode(data)?;
@@ -839,7 +930,8 @@ impl MeshManager {
 
     /// Get connected peers.
     pub fn peers(&self) -> Vec<MeshPeer> {
-        self.peers.iter()
+        self.peers
+            .iter()
             .filter(|p| p.state == PeerState::Connected)
             .map(|p| p.value().clone())
             .collect()
@@ -847,7 +939,11 @@ impl MeshManager {
 
     /// Get mesh stats.
     pub fn stats(&self) -> MeshStats {
-        let connected = self.peers.iter().filter(|p| p.state == PeerState::Connected).count();
+        let connected = self
+            .peers
+            .iter()
+            .filter(|p| p.state == PeerState::Connected)
+            .count();
         let total = self.peers.len();
         let cache_size = self.local_cache.len();
 
@@ -900,7 +996,7 @@ mod tests {
 
         let data = vec![0x42u8; 32768]; // 32KB
         let symbols = encoder.encode(&data).unwrap();
-        
+
         assert_eq!(symbols.len(), 48); // 32 source + 16 repair
         assert_eq!(symbols[0].symbol_id, 0);
         assert_eq!(symbols[31].symbol_id, 31);

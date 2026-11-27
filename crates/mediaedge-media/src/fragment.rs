@@ -135,7 +135,7 @@ impl FragmentBroadcaster {
         // Broadcast to all subscribers
         let subscribers = self.subscribers.read();
         let mut dead_subscribers = Vec::new();
-        
+
         for (id, sender) in subscribers.iter() {
             if sender.try_send(fragment.clone()).is_err() {
                 dead_subscribers.push(*id);
@@ -152,17 +152,25 @@ impl FragmentBroadcaster {
 
         // Record metrics
         let active = subscribers.len() as u64;
-        self.metrics.gauge("ingest_active_streams", "Active ingest streams").set(active as f64);
-        self.metrics.counter("ingest_fragments_total", "Total fragments ingested").increment(1);
+        self.metrics
+            .gauge("ingest_active_streams", "Active ingest streams")
+            .set(active as f64);
+        self.metrics
+            .counter("ingest_fragments_total", "Total fragments ingested")
+            .increment(1);
     }
 
     /// Subscribe to fragments.
     fn subscribe(&self, buffer_size: usize) -> FragmentSubscriber {
-        let id = self.next_subscriber_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = self
+            .next_subscriber_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let subscriber = FragmentSubscriber::new(self.stream_id.clone(), buffer_size);
-        
-        self.subscribers.write().insert(id, subscriber.sender.clone());
-        
+
+        self.subscribers
+            .write()
+            .insert(id, subscriber.sender.clone());
+
         // Send latest fragment immediately if available
         if let Some(latest) = self.latest_fragment.read().as_ref() {
             let _ = subscriber.sender.try_send(latest.clone());
@@ -212,7 +220,11 @@ impl FragmentBroadcasterRegistry {
     }
 
     /// Create with metrics registry.
-    pub fn with_metrics(metrics: Arc<MetricsRegistry>, max_history_per_stream: usize, default_buffer_size: usize) -> Self {
+    pub fn with_metrics(
+        metrics: Arc<MetricsRegistry>,
+        max_history_per_stream: usize,
+        default_buffer_size: usize,
+    ) -> Self {
         Self {
             broadcasters: DashMap::new(),
             metrics,
@@ -226,8 +238,13 @@ impl FragmentBroadcasterRegistry {
         self.broadcasters
             .entry(stream_id.clone())
             .or_insert_with(|| {
-                info!("Created new fragment broadcaster for stream: {}", stream_id.0);
-                self.metrics.counter("ingest_streams_total", "Total ingest streams").increment(1);
+                info!(
+                    "Created new fragment broadcaster for stream: {}",
+                    stream_id.0
+                );
+                self.metrics
+                    .counter("ingest_streams_total", "Total ingest streams")
+                    .increment(1);
                 Arc::new(FragmentBroadcaster::new(
                     stream_id,
                     self.max_history_per_stream,
@@ -260,11 +277,16 @@ impl FragmentBroadcasterRegistry {
 
     /// Subscribe to a stream.
     pub fn subscribe(&self, stream_id: StreamId) -> Option<FragmentSubscriber> {
-        self.get(&stream_id).map(|b| b.subscribe(self.default_buffer_size))
+        self.get(&stream_id)
+            .map(|b| b.subscribe(self.default_buffer_size))
     }
 
     /// Subscribe with custom buffer size.
-    pub fn subscribe_with_buffer(&self, stream_id: StreamId, buffer_size: usize) -> Option<FragmentSubscriber> {
+    pub fn subscribe_with_buffer(
+        &self,
+        stream_id: StreamId,
+        buffer_size: usize,
+    ) -> Option<FragmentSubscriber> {
         self.get(&stream_id).map(|b| b.subscribe(buffer_size))
     }
 
@@ -316,12 +338,13 @@ pub fn get_all_ingest_stats(registry: &FragmentBroadcasterRegistry) -> Vec<Strea
             let history = broadcaster.history();
             let latest = history.last().map(|f| f.meta.sequence);
             let fragment_count = history.len() as u64;
-            
+
             // Calculate bitrate (simplified)
             let bitrate = if fragment_count > 1 {
                 let first = &history[0];
                 let last = &history.last().unwrap();
-                let duration = last.meta.timestamp.as_secs_f64() - first.meta.timestamp.as_secs_f64();
+                let duration =
+                    last.meta.timestamp.as_secs_f64() - first.meta.timestamp.as_secs_f64();
                 let total_bytes: usize = history.iter().map(|f| f.payload.len()).sum();
                 if duration > 0.0 {
                     ((total_bytes as f64 * 8.0) / duration) as u64
@@ -338,7 +361,10 @@ pub fn get_all_ingest_stats(registry: &FragmentBroadcasterRegistry) -> Vec<Strea
                 subscriber_count: broadcaster.subscriber_count(),
                 latest_fragment_sequence: latest,
                 bitrate_bps: bitrate,
-                uptime: history.first().map(|f| f.meta.ingest_time.elapsed()).unwrap_or_default(),
+                uptime: history
+                    .first()
+                    .map(|f| f.meta.ingest_time.elapsed())
+                    .unwrap_or_default(),
             }
         })
         .collect()
@@ -372,12 +398,15 @@ mod tests {
 
         // Ingest some fragments
         for i in 0..10 {
-            registry.ingest(stream_id.clone(), create_test_fragment("test-stream", i, i % 5 == 0));
+            registry.ingest(
+                stream_id.clone(),
+                create_test_fragment("test-stream", i, i % 5 == 0),
+            );
         }
 
         // Subscribe
         let mut subscriber = registry.subscribe(stream_id.clone()).unwrap();
-        
+
         // Should receive latest fragment
         let fragment = subscriber.try_next();
         assert!(fragment.is_some());
@@ -391,7 +420,10 @@ mod tests {
 
         // Ingest 10 fragments (max history is 5)
         for i in 0..10 {
-            registry.ingest(stream_id.clone(), create_test_fragment("test-stream", i, false));
+            registry.ingest(
+                stream_id.clone(),
+                create_test_fragment("test-stream", i, false),
+            );
         }
 
         let broadcaster = registry.get(&stream_id).unwrap();
@@ -406,7 +438,10 @@ mod tests {
         let registry = FragmentBroadcasterRegistry::new();
         let stream_id = StreamId::new("test-stream");
 
-        registry.ingest(stream_id.clone(), create_test_fragment("test-stream", 0, true));
+        registry.ingest(
+            stream_id.clone(),
+            create_test_fragment("test-stream", 0, true),
+        );
 
         let mut sub1 = registry.subscribe(stream_id.clone()).unwrap();
         let mut sub2 = registry.subscribe(stream_id.clone()).unwrap();
@@ -415,7 +450,10 @@ mod tests {
         assert_eq!(sub2.try_next().unwrap().meta.sequence, 0);
 
         // New fragment should go to both
-        registry.ingest(stream_id.clone(), create_test_fragment("test-stream", 1, false));
+        registry.ingest(
+            stream_id.clone(),
+            create_test_fragment("test-stream", 1, false),
+        );
 
         assert_eq!(sub1.try_next().unwrap().meta.sequence, 1);
         assert_eq!(sub2.try_next().unwrap().meta.sequence, 1);
@@ -426,7 +464,10 @@ mod tests {
         let registry = FragmentBroadcasterRegistry::new();
         let stream_id = StreamId::new("test-stream");
 
-        registry.ingest(stream_id.clone(), create_test_fragment("test-stream", 0, true));
+        registry.ingest(
+            stream_id.clone(),
+            create_test_fragment("test-stream", 0, true),
+        );
         assert!(registry.get(&stream_id).is_some());
 
         registry.remove(&stream_id);
@@ -436,9 +477,15 @@ mod tests {
     #[test]
     fn test_sibling_tracks() {
         let mut fragment = create_test_fragment("test-stream", 0, true);
-        fragment.siblings.insert("captions".to_string(), Bytes::from("caption data"));
-        fragment.siblings.insert("scte35".to_string(), Bytes::from("scte35 data"));
-        fragment.siblings.insert("timing".to_string(), Bytes::from("timing data"));
+        fragment
+            .siblings
+            .insert("captions".to_string(), Bytes::from("caption data"));
+        fragment
+            .siblings
+            .insert("scte35".to_string(), Bytes::from("scte35 data"));
+        fragment
+            .siblings
+            .insert("timing".to_string(), Bytes::from("timing data"));
 
         let registry = FragmentBroadcasterRegistry::new();
         let stream_id = StreamId::new("test-stream");
@@ -446,7 +493,7 @@ mod tests {
 
         let mut subscriber = registry.subscribe(stream_id).unwrap();
         let received = subscriber.try_next().unwrap();
-        
+
         assert!(received.siblings.contains_key("captions"));
         assert!(received.siblings.contains_key("scte35"));
         assert!(received.siblings.contains_key("timing"));

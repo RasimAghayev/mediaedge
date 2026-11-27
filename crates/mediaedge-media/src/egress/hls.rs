@@ -111,7 +111,8 @@ pub async fn run_hls_egress(
 
     let state = HlsStreamState {
         stream_id: stream_id.clone(),
-        subscriber: registry.subscribe_with_buffer(stream_id.clone(), 1000)
+        subscriber: registry
+            .subscribe_with_buffer(stream_id.clone(), 1000)
             .ok_or_else(|| anyhow::anyhow!("Failed to subscribe to stream"))?,
         segment_sequence: 0,
         part_sequence: 0,
@@ -131,7 +132,11 @@ pub async fn run_hls_egress(
         bytes_written: 0,
     };
 
-    info!("HLS egress started for stream: {} at {}", stream_id.0, output_dir.display());
+    info!(
+        "HLS egress started for stream: {} at {}",
+        stream_id.0,
+        output_dir.display()
+    );
 
     // Run segmenter loop
     run_segmenter_loop(state, metrics).await
@@ -159,21 +164,21 @@ async fn run_segmenter_loop(
                     break;
                 }
             }
-            
+
             // Segment boundary
             _ = segment_timer.tick() => {
                 if !state.current_segment_data.is_empty() {
                     finalize_segment(&mut state, &metrics).await;
                 }
             }
-            
+
             // Part boundary (LL-HLS)
             _ = part_timer.tick() => {
                 if state.llhls_enabled && !state.current_segment_data.is_empty() {
                     finalize_part(&mut state, &metrics).await;
                 }
             }
-            
+
             // Cleanup old segments
             _ = cleanup_timer.tick() => {
                 cleanup_old_segments(&mut state).await;
@@ -205,7 +210,9 @@ async fn handle_fragment(
     }
 
     // Append fragment data to current segment
-    state.current_segment_data.extend_from_slice(&fragment.payload);
+    state
+        .current_segment_data
+        .extend_from_slice(&fragment.payload);
     state.bytes_written += fragment.payload.len() as u64;
 
     // Handle SCTE-35 events from siblings
@@ -219,28 +226,32 @@ async fn handle_fragment(
     }
 
     // Update metrics
-    metrics.counter("egress_hls_fragments_total", "HLS fragments processed").increment(1);
-    metrics.counter("egress_hls_bytes_total", "HLS bytes written").increment(fragment.payload.len() as u64);
+    metrics
+        .counter("egress_hls_fragments_total", "HLS fragments processed")
+        .increment(1);
+    metrics
+        .counter("egress_hls_bytes_total", "HLS bytes written")
+        .increment(fragment.payload.len() as u64);
 }
 
 /// Finalize a segment.
-async fn finalize_segment(
-    state: &mut HlsStreamState,
-    metrics: &Arc<MetricsRegistry>,
-) {
+async fn finalize_segment(state: &mut HlsStreamState, metrics: &Arc<MetricsRegistry>) {
     if state.current_segment_data.is_empty() {
         return;
     }
 
-    let segment_path = state.output_dir.join(format!("segment_{:06}.ts", state.segment_sequence));
-    
+    let segment_path = state
+        .output_dir
+        .join(format!("segment_{:06}.ts", state.segment_sequence));
+
     // Write segment file
     if let Err(e) = fs::write(&segment_path, &state.current_segment_data).await {
         error!("Failed to write HLS segment: {}", e);
         return;
     }
 
-    let duration = state.current_segment_start
+    let duration = state
+        .current_segment_start
         .map(|s| s.elapsed())
         .unwrap_or(state.segment_duration);
 
@@ -248,7 +259,10 @@ async fn finalize_segment(
         sequence: state.segment_sequence,
         duration,
         path: segment_path.clone(),
-        uri: format!("{}/segment_{:06}.ts", state.base_url, state.segment_sequence),
+        uri: format!(
+            "{}/segment_{:06}.ts",
+            state.base_url, state.segment_sequence
+        ),
         is_keyframe: state.current_segment_is_keyframe,
         byte_range: None,
         discontinuity: false,
@@ -266,21 +280,25 @@ async fn finalize_segment(
     update_media_playlist(state).await;
 
     // Update metrics
-    metrics.counter("egress_hls_segments_total", "HLS segments created").increment(1);
-    metrics.gauge("egress_hls_active_segments", "Active HLS segments").set(state.segments.len() as f64);
+    metrics
+        .counter("egress_hls_segments_total", "HLS segments created")
+        .increment(1);
+    metrics
+        .gauge("egress_hls_active_segments", "Active HLS segments")
+        .set(state.segments.len() as f64);
 }
 
 /// Finalize a part (LL-HLS).
-async fn finalize_part(
-    state: &mut HlsStreamState,
-    metrics: &Arc<MetricsRegistry>,
-) {
+async fn finalize_part(state: &mut HlsStreamState, metrics: &Arc<MetricsRegistry>) {
     if state.current_segment_data.is_empty() {
         return;
     }
 
-    let part_path = state.output_dir.join(format!("part_{:06}_{:06}.ts", state.segment_sequence, state.part_sequence));
-    
+    let part_path = state.output_dir.join(format!(
+        "part_{:06}_{:06}.ts",
+        state.segment_sequence, state.part_sequence
+    ));
+
     if let Err(e) = fs::write(&part_path, &state.current_segment_data).await {
         error!("Failed to write HLS part: {}", e);
         return;
@@ -292,7 +310,9 @@ async fn finalize_part(
     // Update part playlist
     update_part_playlist(state).await;
 
-    metrics.counter("egress_hls_parts_total", "HLS parts created").increment(1);
+    metrics
+        .counter("egress_hls_parts_total", "HLS parts created")
+        .increment(1);
 }
 
 /// Update media playlist (.m3u8).
@@ -306,13 +326,15 @@ async fn update_media_playlist(state: &HlsStreamState) {
         let mut media_segment = MediaSegment::default();
         media_segment.uri = segment.uri.clone();
         media_segment.duration = segment.duration.as_secs_f64();
-        
+
         if segment.discontinuity {
             media_segment.tags.push(Tag::ExtXDiscontinuity);
         }
-        
+
         if let Some(dt) = segment.program_date_time {
-            media_segment.tags.push(Tag::ExtXProgramDateTime(dt.to_rfc3339()));
+            media_segment
+                .tags
+                .push(Tag::ExtXProgramDateTime(dt.to_rfc3339()));
         }
 
         // Add SCTE-35 events
@@ -344,7 +366,7 @@ async fn update_media_playlist(state: &HlsStreamState) {
     // Write playlist
     let playlist_path = state.output_dir.join("playlist.m3u8");
     let playlist_string = playlist.to_string();
-    
+
     if let Err(e) = fs::write(&playlist_path, playlist_string).await {
         error!("Failed to write HLS playlist: {}", e);
     }
@@ -365,7 +387,7 @@ async fn update_part_playlist(state: &HlsStreamState) {
 /// Cleanup old segments beyond playlist window.
 async fn cleanup_old_segments(state: &mut HlsStreamState) {
     let max_segments = state.playlist_window + 5; // Keep a few extra
-    
+
     while state.segments.len() > max_segments {
         if let Some(old_segment) = state.segments.first() {
             let _ = fs::remove_file(&old_segment.path).await;
@@ -380,7 +402,9 @@ async fn cleanup_old_segments(state: &mut HlsStreamState) {
 async fn finalize_stream(state: &mut HlsStreamState) {
     // Write final segment if any data
     if !state.current_segment_data.is_empty() {
-        let segment_path = state.output_dir.join(format!("segment_{:06}.ts", state.segment_sequence));
+        let segment_path = state
+            .output_dir
+            .join(format!("segment_{:06}.ts", state.segment_sequence));
         let _ = fs::write(&segment_path, &state.current_segment_data).await;
     }
 
@@ -402,8 +426,11 @@ async fn finalize_stream(state: &mut HlsStreamState) {
     let playlist_path = state.output_dir.join("playlist.m3u8");
     let _ = fs::write(&playlist_path, playlist.to_string()).await;
 
-    info!("HLS egress finalized for stream: {} ({} segments)", 
-        state.stream_id.0, state.segments.len());
+    info!(
+        "HLS egress finalized for stream: {} ({} segments)",
+        state.stream_id.0,
+        state.segments.len()
+    );
 }
 
 /// Parse SCTE-35 events from binary data.
@@ -415,13 +442,14 @@ fn parse_scte35_events(data: &Bytes) -> anyhow::Result<Vec<Scte35Event>> {
     }
 
     // Check for splice_info_section
-    if data[0] != 0xFC { // table_id = 0xFC for splice_info_section
+    if data[0] != 0xFC {
+        // table_id = 0xFC for splice_info_section
         return Ok(Vec::new());
     }
 
     let mut events = Vec::new();
     // Parse would continue here...
-    
+
     Ok(events)
 }
 
@@ -432,7 +460,7 @@ pub fn generate_master_playlist(
     variants: &[HlsVariantConfig],
 ) -> String {
     let mut playlist = MasterPlaylist::default();
-    
+
     for variant in variants {
         let mut variant_stream = m3u8_rs::VariantStream::default();
         variant_stream.uri = format!("{}/{}/playlist.m3u8", base_url, stream_id.0);
@@ -443,7 +471,7 @@ pub fn generate_master_playlist(
         variant_stream.frame_rate = variant.framerate.map(|f| f as f64);
         variant_stream.video_range = variant.video_range.clone();
         variant_stream.hdcp_level = variant.hdcp_level.clone();
-        
+
         playlist.variants.push(variant_stream);
     }
 
@@ -554,7 +582,7 @@ mod tests {
         ];
 
         let playlist = generate_master_playlist(&stream_id, base_url, &variants);
-        
+
         assert!(playlist.contains("#EXTM3U"));
         assert!(playlist.contains("#EXT-X-STREAM-INF"));
         assert!(playlist.contains("1920x1080"));

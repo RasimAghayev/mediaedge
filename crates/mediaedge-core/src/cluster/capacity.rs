@@ -41,12 +41,18 @@ impl NodeCapacity {
     /// Calculate available capacity score (0.0 - 1.0, higher = more available).
     pub fn capacity_score(&self) -> f32 {
         let cpu_available = 1.0 - (self.cpu_usage_percent / 100.0);
-        let memory_available = 1.0 - (self.memory_used_bytes as f32 / self.memory_total_bytes.max(1) as f32);
-        let bandwidth_available = 1.0 - (self.bandwidth_used_mbps as f32 / self.bandwidth_total_mbps.max(1) as f32);
+        let memory_available =
+            1.0 - (self.memory_used_bytes as f32 / self.memory_total_bytes.max(1) as f32);
+        let bandwidth_available =
+            1.0 - (self.bandwidth_used_mbps as f32 / self.bandwidth_total_mbps.max(1) as f32);
         let stream_available = 1.0 - (self.current_streams as f32 / self.max_streams.max(1) as f32);
-        
+
         // Weighted average
-        (cpu_available * 0.3 + memory_available * 0.2 + bandwidth_available * 0.2 + stream_available * 0.3).clamp(0.0, 1.0)
+        (cpu_available * 0.3
+            + memory_available * 0.2
+            + bandwidth_available * 0.2
+            + stream_available * 0.3)
+            .clamp(0.0, 1.0)
     }
 
     /// Check if node can accept more streams.
@@ -138,7 +144,7 @@ impl CapacityManager {
     /// Set the gossip protocol.
     pub fn set_gossip(&self, gossip: Arc<GossipProtocol>) {
         *self.gossip.write() = Some(gossip);
-        
+
         // Update local node ID
         let node_id = gossip.node_id().clone();
         self.local_capacity.write().node_id = node_id;
@@ -170,7 +176,7 @@ impl CapacityManager {
     /// Update local capacity metrics.
     pub fn update_capacity(&self, update: CapacityUpdate) {
         let mut capacity = self.local_capacity.write();
-        
+
         if let Some(cpu) = update.cpu_usage_percent {
             capacity.cpu_usage_percent = cpu.clamp(0.0, 100.0);
         }
@@ -192,11 +198,11 @@ impl CapacityManager {
         if let Some(max_streams) = update.max_streams {
             capacity.max_streams = max_streams;
         }
-        
+
         for (k, v) in update.custom_metrics {
             capacity.custom_metrics.insert(k, v);
         }
-        
+
         capacity.updated_at = chrono::Utc::now().timestamp() as u64;
     }
 
@@ -221,7 +227,10 @@ impl CapacityManager {
 
     /// Get cluster capacity (all nodes).
     pub fn cluster_capacity(&self) -> Vec<NodeCapacity> {
-        self.cluster_capacity.iter().map(|e| e.value().clone()).collect()
+        self.cluster_capacity
+            .iter()
+            .map(|e| e.value().clone())
+            .collect()
     }
 
     /// Get capacity for a specific node.
@@ -244,7 +253,8 @@ impl CapacityManager {
         // Check other nodes
         for entry in self.cluster_capacity.iter() {
             let capacity = entry.value();
-            if capacity.can_accept_streams(required_streams) && (!require_gpu || capacity.has_gpu()) {
+            if capacity.can_accept_streams(required_streams) && (!require_gpu || capacity.has_gpu())
+            {
                 let score = capacity.capacity_score();
                 if score > best_score {
                     best_score = score;
@@ -258,11 +268,12 @@ impl CapacityManager {
 
     /// Get nodes sorted by capacity score (best first).
     pub fn nodes_by_capacity(&self, require_gpu: bool) -> Vec<NodeCapacity> {
-        let mut nodes: Vec<NodeCapacity> = self.cluster_capacity()
+        let mut nodes: Vec<NodeCapacity> = self
+            .cluster_capacity()
             .into_iter()
             .filter(|c| !require_gpu || c.has_gpu())
             .collect();
-        
+
         nodes.sort_by(|a, b| b.capacity_score().partial_cmp(&a.capacity_score()).unwrap());
         nodes
     }
@@ -271,7 +282,7 @@ impl CapacityManager {
     pub fn update_from_gossip(&self, node_id: NodeId, capacity: NodeCapacity) {
         let is_new = !self.cluster_capacity.contains_key(&node_id);
         self.cluster_capacity.insert(node_id.clone(), capacity);
-        
+
         if is_new {
             let _ = self.event_tx.try_send(CapacityEvent::Updated { node_id });
         }
@@ -286,7 +297,7 @@ impl CapacityManager {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(5));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -296,13 +307,13 @@ impl CapacityManager {
 
                         // Collect system metrics
                         let mut cap = local_capacity.write();
-                        
+
                         // CPU usage (simplified - in real implementation use sysinfo)
                         cap.cpu_usage_percent = Self::get_cpu_usage();
-                        
+
                         // Memory usage
                         cap.memory_used_bytes = Self::get_used_memory();
-                        
+
                         // GPU metrics (if enabled)
                         if config.enable_gpu_monitoring {
                             if let Some(gpu_info) = Self::get_gpu_info() {
@@ -312,7 +323,7 @@ impl CapacityManager {
                                 cap.gpu_utilization_percent = gpu_info.utilization;
                             }
                         }
-                        
+
                         cap.updated_at = chrono::Utc::now().timestamp() as u64;
 
                         // Update metrics
@@ -342,7 +353,7 @@ impl CapacityManager {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(config.advertise_interval_secs));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -375,7 +386,7 @@ impl CapacityManager {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(10));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -516,7 +527,7 @@ mod tests {
         let mut update = CapacityUpdate::default();
         update.cpu_usage_percent = Some(75.0);
         update.current_streams = Some(100);
-        
+
         assert_eq!(update.cpu_usage_percent, Some(75.0));
         assert_eq!(update.current_streams, Some(100));
     }

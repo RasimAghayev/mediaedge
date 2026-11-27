@@ -10,41 +10,31 @@
 
 #![warn(missing_docs)]
 
-pub mod openapi;
 pub mod grpc;
+pub mod middleware;
+pub mod openapi;
+pub mod rate_limit;
 pub mod validation;
 pub mod versioning;
-pub mod rate_limit;
-pub mod middleware;
 
 // Re-export main types
-pub use openapi::{
-    ApiDoc, create_openapi_router, OpenApiConfig,
-};
 pub use grpc::{
     mediaedge, // generated gRPC module
 };
+pub use middleware::{ApiMiddlewareConfig, api_middleware_stack};
+pub use openapi::{ApiDoc, OpenApiConfig, create_openapi_router};
+pub use rate_limit::{RateLimitConfig, RateLimitMiddleware, TokenBucket};
 pub use validation::{
-    ValidationMiddleware, ValidationConfig, ValidatedJson, ValidatedQuery, ValidatedPath,
+    ValidatedJson, ValidatedPath, ValidatedQuery, ValidationConfig, ValidationMiddleware,
 };
-pub use versioning::{
-    ApiVersion, VersioningMiddleware, VersioningConfig,
-};
-pub use rate_limit::{
-    RateLimitMiddleware, RateLimitConfig, TokenBucket,
-};
-pub use middleware::{
-    api_middleware_stack, ApiMiddlewareConfig,
-};
+pub use versioning::{ApiVersion, VersioningConfig, VersioningMiddleware};
 
 /// Prelude for convenient imports.
 pub mod prelude {
     pub use crate::{
-        ApiDoc, create_openapi_router, OpenApiConfig,
-        ValidationMiddleware, ValidatedJson, ValidatedQuery, ValidatedPath,
-        ApiVersion, VersioningMiddleware,
-        RateLimitMiddleware, RateLimitConfig,
-        api_middleware_stack, ApiMiddlewareConfig,
+        ApiDoc, ApiMiddlewareConfig, ApiVersion, OpenApiConfig, RateLimitConfig,
+        RateLimitMiddleware, ValidatedJson, ValidatedPath, ValidatedQuery, ValidationMiddleware,
+        VersioningMiddleware, api_middleware_stack, create_openapi_router,
     };
 }
 

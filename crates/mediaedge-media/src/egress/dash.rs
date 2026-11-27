@@ -14,11 +14,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use dashmap::DashMap;
 use dash_mpd::{
-    Mpd, Period, AdaptationSet, Representation, SegmentTemplate, SegmentTimeline,
-    STimeline, SElement, ContentProtection, Descriptor,
+    AdaptationSet, ContentProtection, Descriptor, Mpd, Period, Representation, SElement, STimeline,
+    SegmentTemplate, SegmentTimeline,
 };
+use dashmap::DashMap;
 use tokio::fs;
 use tokio::sync::mpsc;
 use tokio::time::interval;
@@ -97,7 +97,8 @@ pub async fn run_dash_egress(
 
     let state = DashStreamState {
         stream_id: stream_id.clone(),
-        subscriber: registry.subscribe_with_buffer(stream_id.clone(), 1000)
+        subscriber: registry
+            .subscribe_with_buffer(stream_id.clone(), 1000)
             .ok_or_else(|| anyhow::anyhow!("Failed to subscribe to stream"))?,
         segment_number: 0,
         segment_duration,
@@ -114,7 +115,11 @@ pub async fn run_dash_egress(
         presentation_time_offset: 0,
     };
 
-    info!("DASH egress started for stream: {} at {}", stream_id.0, output_dir.display());
+    info!(
+        "DASH egress started for stream: {} at {}",
+        stream_id.0,
+        output_dir.display()
+    );
 
     // Generate initial MPD
     generate_initial_mpd(&state).await?;
@@ -135,14 +140,17 @@ async fn generate_initial_mpd(state: &DashStreamState) -> anyhow::Result<()> {
 /// Create MPD document.
 async fn create_mpd(state: &DashStreamState) -> Mpd {
     let mut mpd = Mpd::default();
-    
+
     mpd.profiles = vec!["urn:mpeg:dash:profile:isoff-live:2013".to_string()];
     mpd.type_ = "dynamic".to_string();
     mpd.minimum_update_period = Some(format!("PT{}S", state.segment_duration.as_secs()));
     mpd.min_buffer_time = Some(format!("PT{}S", state.segment_duration.as_secs() * 2));
     mpd.availability_start_time = Some(chrono::Utc::now().to_rfc3339());
     mpd.publish_time = Some(chrono::Utc::now().to_rfc3339());
-    mpd.time_shift_buffer_depth = Some(format!("PT{}S", state.segment_duration.as_secs() * state.segments.len().max(10) as u64));
+    mpd.time_shift_buffer_depth = Some(format!(
+        "PT{}S",
+        state.segment_duration.as_secs() * state.segments.len().max(10) as u64
+    ));
 
     // Create period
     let mut period = Period::default();
@@ -169,7 +177,7 @@ async fn create_mpd(state: &DashStreamState) -> Mpd {
     video_seg_template.start_number = 1;
     video_seg_template.media = "video_$Number$.m4s".to_string();
     video_seg_template.initialization = "video_init.mp4".to_string();
-    
+
     // Build segment timeline
     let mut timeline = SegmentTimeline::default();
     for (i, segment) in state.segments.iter().enumerate() {
@@ -182,7 +190,7 @@ async fn create_mpd(state: &DashStreamState) -> Mpd {
         timeline.s.push(s);
     }
     video_seg_template.segment_timeline = Some(timeline);
-    
+
     video_adaptation.segment_template = Some(video_seg_template);
 
     // Add representations (bitrate ladder)
@@ -264,14 +272,14 @@ async fn run_dash_segmenter_loop(
                     break;
                 }
             }
-            
+
             // Segment boundary
             _ = segment_timer.tick() => {
                 if !state.current_segment_data.is_empty() {
                     finalize_dash_segment(&mut state, &metrics).await;
                 }
             }
-            
+
             // Update MPD
             _ = mpd_update_timer.tick() => {
                 if let Err(e) = update_mpd(&state).await {
@@ -292,22 +300,28 @@ async fn handle_dash_fragment(
 ) {
     // Start new segment if needed
     if state.current_segment_start_time == 0 {
-        state.current_segment_start_time = (state.started_at.elapsed().as_secs() * state.timescale) as u64;
+        state.current_segment_start_time =
+            (state.started_at.elapsed().as_secs() * state.timescale) as u64;
         state.current_segment_is_keyframe = fragment.meta.is_keyframe;
     } else if fragment.meta.is_keyframe && state.current_segment_start_time > 0 {
         // Keyframe can start new segment
-        let elapsed_time = (Instant::now().duration_since(state.started_at).as_secs() * state.timescale) as u64;
+        let elapsed_time =
+            (Instant::now().duration_since(state.started_at).as_secs() * state.timescale) as u64;
         let elapsed_in_segment = elapsed_time - state.current_segment_start_time;
-        
+
         if elapsed_in_segment >= state.segment_duration_timescale {
             finalize_dash_segment(state, metrics).await;
-            state.current_segment_start_time = (Instant::now().duration_since(state.started_at).as_secs() * state.timescale) as u64;
+            state.current_segment_start_time =
+                (Instant::now().duration_since(state.started_at).as_secs() * state.timescale)
+                    as u64;
             state.current_segment_is_keyframe = true;
         }
     }
 
     // Append fragment data
-    state.current_segment_data.extend_from_slice(&fragment.payload);
+    state
+        .current_segment_data
+        .extend_from_slice(&fragment.payload);
     state.bytes_written += fragment.payload.len() as u64;
 
     // Handle SCTE-35
@@ -317,21 +331,24 @@ async fn handle_dash_fragment(
         }
     }
 
-    metrics.counter("egress_dash_fragments_total", "DASH fragments processed").increment(1);
-    metrics.counter("egress_dash_bytes_total", "DASH bytes written").increment(fragment.payload.len() as u64);
+    metrics
+        .counter("egress_dash_fragments_total", "DASH fragments processed")
+        .increment(1);
+    metrics
+        .counter("egress_dash_bytes_total", "DASH bytes written")
+        .increment(fragment.payload.len() as u64);
 }
 
 /// Finalize DASH segment.
-async fn finalize_dash_segment(
-    state: &mut DashStreamState,
-    metrics: &Arc<MetricsRegistry>,
-) {
+async fn finalize_dash_segment(state: &mut DashStreamState, metrics: &Arc<MetricsRegistry>) {
     if state.current_segment_data.is_empty() {
         return;
     }
 
-    let segment_path = state.output_dir.join(format!("video_{}.m4s", state.segment_number));
-    
+    let segment_path = state
+        .output_dir
+        .join(format!("video_{}.m4s", state.segment_number));
+
     if let Err(e) = fs::write(&segment_path, &state.current_segment_data).await {
         error!("Failed to write DASH segment: {}", e);
         return;
@@ -356,7 +373,9 @@ async fn finalize_dash_segment(
     state.current_segment_start_time = 0;
     state.current_segment_is_keyframe = false;
 
-    metrics.counter("egress_dash_segments_total", "DASH segments created").increment(1);
+    metrics
+        .counter("egress_dash_segments_total", "DASH segments created")
+        .increment(1);
 }
 
 /// Update MPD document.
@@ -372,19 +391,26 @@ async fn update_mpd(state: &DashStreamState) -> anyhow::Result<()> {
 async fn finalize_dash_stream(state: &mut DashStreamState) {
     // Write final segment
     if !state.current_segment_data.is_empty() {
-        finalize_dash_segment(state, &Arc::new(MetricsRegistry::new(&Default::default()).unwrap())).await;
+        finalize_dash_segment(
+            state,
+            &Arc::new(MetricsRegistry::new(&Default::default()).unwrap()),
+        )
+        .await;
     }
 
     // Generate final MPD with static type
     let mut mpd = create_mpd(state).await;
     mpd.type_ = "static".to_string();
     mpd.minimum_update_period = None;
-    
+
     let mpd_path = state.output_dir.join("manifest.mpd");
     let _ = fs::write(&mpd_path, mpd.to_string()).await;
 
-    info!("DASH egress finalized for stream: {} ({} segments)", 
-        state.stream_id.0, state.segments.len());
+    info!(
+        "DASH egress finalized for stream: {} ({} segments)",
+        state.stream_id.0,
+        state.segments.len()
+    );
 }
 
 /// Parse SCTE-35 for DASH event stream.
@@ -561,51 +587,43 @@ mod tests {
     #[test]
     fn test_multi_period_dash() {
         let mut mpd = MultiPeriodDash::new();
-        
+
         mpd.add_content_period(PeriodConfig {
             id: "content-1".to_string(),
             start: "PT0S".to_string(),
             duration: Some("PT300S".to_string()),
-            adaptation_sets: vec![
-                AdaptationSetConfig {
-                    id: 1,
-                    content_type: "video".to_string(),
-                    representations: vec![
-                        DashRepresentationConfig {
-                            id: "1080p".to_string(),
-                            bandwidth: 5_000_000,
-                            codecs: "avc1.640028".to_string(),
-                            width: 1920,
-                            height: 1080,
-                            framerate: 30,
-                            audio_sampling_rate: None,
-                        },
-                    ],
-                },
-            ],
+            adaptation_sets: vec![AdaptationSetConfig {
+                id: 1,
+                content_type: "video".to_string(),
+                representations: vec![DashRepresentationConfig {
+                    id: "1080p".to_string(),
+                    bandwidth: 5_000_000,
+                    codecs: "avc1.640028".to_string(),
+                    width: 1920,
+                    height: 1080,
+                    framerate: 30,
+                    audio_sampling_rate: None,
+                }],
+            }],
         });
 
         mpd.add_ad_period(PeriodConfig {
             id: "ad-1".to_string(),
             start: "PT300S".to_string(),
             duration: Some("PT30S".to_string()),
-            adaptation_sets: vec![
-                AdaptationSetConfig {
-                    id: 1,
-                    content_type: "video".to_string(),
-                    representations: vec![
-                        DashRepresentationConfig {
-                            id: "ad-1080p".to_string(),
-                            bandwidth: 5_000_000,
-                            codecs: "avc1.640028".to_string(),
-                            width: 1920,
-                            height: 1080,
-                            framerate: 30,
-                            audio_sampling_rate: None,
-                        },
-                    ],
-                },
-            ],
+            adaptation_sets: vec![AdaptationSetConfig {
+                id: 1,
+                content_type: "video".to_string(),
+                representations: vec![DashRepresentationConfig {
+                    id: "ad-1080p".to_string(),
+                    bandwidth: 5_000_000,
+                    codecs: "avc1.640028".to_string(),
+                    width: 1920,
+                    height: 1080,
+                    framerate: 30,
+                    audio_sampling_rate: None,
+                }],
+            }],
         });
 
         let generated_mpd = mpd.generate_mpd();

@@ -50,11 +50,11 @@ pub struct AnomalyModelConfig {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AnomalyModelType {
-    Statistical,      // Z-score, IQR
-    IsolationForest,  // Unsupervised
-    LstmForecast,     // Time series forecasting
-    Prophet,          // Facebook Prophet
-    Custom,           // Custom model endpoint
+    Statistical,     // Z-score, IQR
+    IsolationForest, // Unsupervised
+    LstmForecast,    // Time series forecasting
+    Prophet,         // Facebook Prophet
+    Custom,          // Custom model endpoint
 }
 
 /// Alerting configuration.
@@ -134,13 +134,13 @@ pub struct AnomalyEvent {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AnomalyType {
-    Spike,           // Sudden increase
-    Drop,            // Sudden decrease
-    TrendChange,     // Change in trend
-    SeasonalityBreak,// Break in seasonal pattern
-    Outlier,         // Statistical outlier
-    ForecastError,   // Prediction vs actual
-    CorrelationBreak,// Correlation breakdown
+    Spike,            // Sudden increase
+    Drop,             // Sudden decrease
+    TrendChange,      // Change in trend
+    SeasonalityBreak, // Break in seasonal pattern
+    Outlier,          // Statistical outlier
+    ForecastError,    // Prediction vs actual
+    CorrelationBreak, // Correlation breakdown
 }
 
 /// Anomaly context for root cause analysis.
@@ -231,7 +231,7 @@ impl AnomalyDetector {
                 min_anomaly_score: 0.5,
                 training_window_hours: 24,
                 retrain_interval_hours: 24,
-            }))
+            })),
         );
     }
 
@@ -250,18 +250,27 @@ impl AnomalyDetector {
     ) {
         let key = self.series_key(&metric_name, &labels);
 
-        let mut series = self.time_series.entry(key.clone()).or_insert_with(|| TimeSeriesData {
-            metric_name: metric_name.clone(),
-            labels: labels.clone(),
-            points: VecDeque::new(),
-            max_points: (self.config.detection_window_seconds / 10) as usize, // ~10s resolution
-        });
+        let mut series = self
+            .time_series
+            .entry(key.clone())
+            .or_insert_with(|| TimeSeriesData {
+                metric_name: metric_name.clone(),
+                labels: labels.clone(),
+                points: VecDeque::new(),
+                max_points: (self.config.detection_window_seconds / 10) as usize, // ~10s resolution
+            });
 
         series.points.push_back(DataPoint { timestamp, value });
 
         // Trim old points
-        let cutoff = timestamp - ChronoDuration::seconds(self.config.detection_window_seconds as i64);
-        while series.points.front().map(|p| p.timestamp < cutoff).unwrap_or(false) {
+        let cutoff =
+            timestamp - ChronoDuration::seconds(self.config.detection_window_seconds as i64);
+        while series
+            .points
+            .front()
+            .map(|p| p.timestamp < cutoff)
+            .unwrap_or(false)
+        {
             series.points.pop_front();
         }
 
@@ -345,9 +354,10 @@ impl AnomalyDetector {
                         metric_name: series.metric_name.clone(),
                         correlation,
                         current_value,
-                        anomaly_detected: self.active_anomalies.iter().any(|a| {
-                            a.metric_name == series.metric_name && !a.resolved
-                        }),
+                        anomaly_detected: self
+                            .active_anomalies
+                            .iter()
+                            .any(|a| a.metric_name == series.metric_name && !a.resolved),
                     });
                 }
             }
@@ -391,7 +401,8 @@ impl AnomalyDetector {
                 }
             }
             AnomalyType::Spike => {
-                if anomaly.metric_name.contains("error") || anomaly.metric_name.contains("latency") {
+                if anomaly.metric_name.contains("error") || anomaly.metric_name.contains("latency")
+                {
                     causes.push(ProbableCause {
                         cause: "Downstream service degradation".to_string(),
                         confidence: 0.75,
@@ -425,7 +436,10 @@ impl AnomalyDetector {
         if anomaly.metric_name.contains("ingest") {
             services.push("ingest".to_string());
         }
-        if anomaly.metric_name.contains("egress") || anomaly.metric_name.contains("hls") || anomaly.metric_name.contains("dash") {
+        if anomaly.metric_name.contains("egress")
+            || anomaly.metric_name.contains("hls")
+            || anomaly.metric_name.contains("dash")
+        {
             services.push("egress".to_string());
         }
         if anomaly.metric_name.contains("transcode") {
@@ -479,7 +493,10 @@ impl AnomalyDetector {
 
     fn get_runbook_url(&self, anomaly: &AnomalyEvent) -> Option<String> {
         // Would map to actual runbook URLs
-        Some(format!("https://runbooks.mediaedge.io/anomalies/{}", anomaly.anomaly_type as u8))
+        Some(format!(
+            "https://runbooks.mediaedge.io/anomalies/{}",
+            anomaly.anomaly_type as u8
+        ))
     }
 
     /// Trigger alert for anomaly.
@@ -487,21 +504,28 @@ impl AnomalyDetector {
         let alert_key = format!("{}:{}", anomaly.metric_name, anomaly.anomaly_type as u8);
         let now = Utc::now();
 
-        let mut state = self.alert_state.entry(alert_key.clone()).or_insert(AlertState {
-            last_alert_at: DateTime::from_timestamp(0, 0).unwrap(),
-            alert_count: 0,
-            escalation_level: 0,
-        });
+        let mut state = self
+            .alert_state
+            .entry(alert_key.clone())
+            .or_insert(AlertState {
+                last_alert_at: DateTime::from_timestamp(0, 0).unwrap(),
+                alert_count: 0,
+                escalation_level: 0,
+            });
 
         // Check cooldown
-        if (now - state.last_alert_at).num_seconds() < self.config.alerting.cooldown_seconds as i64 {
+        if (now - state.last_alert_at).num_seconds() < self.config.alerting.cooldown_seconds as i64
+        {
             return;
         }
 
         // Check severity filter
-        let should_alert = self.config.alerting.channels.iter().any(|c| {
-            c.severity_filter.contains(&anomaly.severity)
-        });
+        let should_alert = self
+            .config
+            .alerting
+            .channels
+            .iter()
+            .any(|c| c.severity_filter.contains(&anomaly.severity));
 
         if !should_alert {
             return;
@@ -520,8 +544,19 @@ impl AnomalyDetector {
         // Check escalation
         if self.config.alerting.escalation.enabled {
             for level in &self.config.alerting.escalation.levels {
-                if state.alert_count as u64 * self.config.alerting.cooldown_seconds >= level.after_seconds {
-                    if state.escalation_level < self.config.alerting.escalation.levels.iter().position(|l| l.after_seconds == level.after_seconds).unwrap_or(0) {
+                if state.alert_count as u64 * self.config.alerting.cooldown_seconds
+                    >= level.after_seconds
+                {
+                    if state.escalation_level
+                        < self
+                            .config
+                            .alerting
+                            .escalation
+                            .levels
+                            .iter()
+                            .position(|l| l.after_seconds == level.after_seconds)
+                            .unwrap_or(0)
+                    {
                         state.escalation_level += 1;
                         for ch in &level.channels {
                             // Send escalation alert
@@ -552,7 +587,8 @@ impl AnomalyDetector {
 
     /// Get active anomalies.
     pub fn get_active_anomalies(&self) -> Vec<AnomalyEvent> {
-        self.active_anomalies.iter()
+        self.active_anomalies
+            .iter()
             .filter(|a| !a.resolved)
             .map(|a| a.clone())
             .collect()
@@ -560,7 +596,8 @@ impl AnomalyDetector {
 
     /// Get anomaly history.
     pub fn get_anomaly_history(&self, since: DateTime<Utc>, limit: usize) -> Vec<AnomalyEvent> {
-        self.active_anomalies.iter()
+        self.active_anomalies
+            .iter()
             .filter(|a| a.timestamp >= since)
             .map(|a| a.clone())
             .collect::<Vec<_>>()
@@ -572,7 +609,8 @@ impl AnomalyDetector {
     fn series_key(&self, metric_name: &str, labels: &HashMap<String, String>) -> String {
         let mut label_pairs: Vec<_> = labels.iter().collect();
         label_pairs.sort_by_key(|(k, _)| *k);
-        let label_str = label_pairs.iter()
+        let label_str = label_pairs
+            .iter()
             .map(|(k, v)| format!("{}=\"{}\"", k, v))
             .collect::<Vec<_>>()
             .join(",");
@@ -668,9 +706,11 @@ impl AnomalyModel for StatisticalModel {
         }
 
         self.mean = Some(values.iter().sum::<f64>() / values.len() as f64);
-        let variance = values.iter()
+        let variance = values
+            .iter()
             .map(|v| (v - self.mean.unwrap()).powi(2))
-            .sum::<f64>() / values.len() as f64;
+            .sum::<f64>()
+            / values.len() as f64;
         self.std_dev = Some(variance.sqrt());
 
         Ok(())
@@ -713,10 +753,12 @@ mod tests {
         let series = TimeSeriesData {
             metric_name: "test.metric".to_string(),
             labels: HashMap::new(),
-            points: (0..100).map(|i| DataPoint {
-                timestamp: Utc::now() - ChronoDuration::seconds(100 - i as i64),
-                value: 100.0 + (i as f64 * 0.1),
-            }).collect(),
+            points: (0..100)
+                .map(|i| DataPoint {
+                    timestamp: Utc::now() - ChronoDuration::seconds(100 - i as i64),
+                    value: 100.0 + (i as f64 * 0.1),
+                })
+                .collect(),
             max_points: 1000,
         };
 

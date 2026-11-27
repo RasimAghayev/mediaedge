@@ -6,8 +6,8 @@ use std::sync::Arc;
 use metrics::{Counter, Gauge, Histogram, Key, Metadata, Recorder, SetRecorderError, Unit};
 use metrics_exporter_prometheus::PrometheusHandle;
 use opentelemetry::{
-    global, metrics::{self as otel_metrics, Meter, MeterProvider as _},
-    KeyValue,
+    KeyValue, global,
+    metrics::{self as otel_metrics, Meter, MeterProvider as _},
 };
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::{self as otel_sdk_metrics, SdkMeterProvider};
@@ -74,9 +74,7 @@ impl FanoutRecorder {
             .with_interval(std::time::Duration::from_secs(60))
             .build();
 
-        let provider = SdkMeterProvider::builder()
-            .with_reader(reader)
-            .build();
+        let provider = SdkMeterProvider::builder().with_reader(reader).build();
 
         let meter = provider.meter("mediaedge");
 
@@ -91,57 +89,74 @@ impl FanoutRecorder {
     fn register_counter(&self, key: &Key, metadata: &Metadata) -> Counter {
         let name = key.name();
         let mut counters = self.counters.write();
-        counters.entry(name.to_string()).or_insert_with(|| {
-            if self.enabled_otlp {
-                // Also register with OTel
-                if let Some(meter) = &self.otel_meter {
-                    let _ = meter.u64_counter(name)
-                        .with_description(metadata.description().unwrap_or(""))
-                        .with_unit(metadata.unit().map(|u| u.as_str()).unwrap_or(""))
-                        .init();
+        counters
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                if self.enabled_otlp {
+                    // Also register with OTel
+                    if let Some(meter) = &self.otel_meter {
+                        let _ = meter
+                            .u64_counter(name)
+                            .with_description(metadata.description().unwrap_or(""))
+                            .with_unit(metadata.unit().map(|u| u.as_str()).unwrap_or(""))
+                            .init();
+                    }
                 }
-            }
-            metrics::counter!(name, metadata.description().unwrap_or(""))
-        }).clone()
+                metrics::counter!(name, metadata.description().unwrap_or(""))
+            })
+            .clone()
     }
 
     /// Register a gauge.
     fn register_gauge(&self, key: &Key, metadata: &Metadata) -> Gauge {
         let name = key.name();
         let mut gauges = self.gauges.write();
-        gauges.entry(name.to_string()).or_insert_with(|| {
-            if self.enabled_otlp {
-                if let Some(meter) = &self.otel_meter {
-                    let _ = meter.f64_gauge(name)
-                        .with_description(metadata.description().unwrap_or(""))
-                        .with_unit(metadata.unit().map(|u| u.as_str()).unwrap_or(""))
-                        .init();
+        gauges
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                if self.enabled_otlp {
+                    if let Some(meter) = &self.otel_meter {
+                        let _ = meter
+                            .f64_gauge(name)
+                            .with_description(metadata.description().unwrap_or(""))
+                            .with_unit(metadata.unit().map(|u| u.as_str()).unwrap_or(""))
+                            .init();
+                    }
                 }
-            }
-            metrics::gauge!(name, metadata.description().unwrap_or(""))
-        }).clone()
+                metrics::gauge!(name, metadata.description().unwrap_or(""))
+            })
+            .clone()
     }
 
     /// Register a histogram.
     fn register_histogram(&self, key: &Key, metadata: &Metadata) -> Histogram {
         let name = key.name();
         let mut histograms = self.histograms.write();
-        histograms.entry(name.to_string()).or_insert_with(|| {
-            if self.enabled_otlp {
-                if let Some(meter) = &self.otel_meter {
-                    let _ = meter.f64_histogram(name)
-                        .with_description(metadata.description().unwrap_or(""))
-                        .with_unit(metadata.unit().map(|u| u.as_str()).unwrap_or(""))
-                        .init();
+        histograms
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                if self.enabled_otlp {
+                    if let Some(meter) = &self.otel_meter {
+                        let _ = meter
+                            .f64_histogram(name)
+                            .with_description(metadata.description().unwrap_or(""))
+                            .with_unit(metadata.unit().map(|u| u.as_str()).unwrap_or(""))
+                            .init();
+                    }
                 }
-            }
-            metrics::histogram!(name, metadata.description().unwrap_or(""))
-        }).clone()
+                metrics::histogram!(name, metadata.description().unwrap_or(""))
+            })
+            .clone()
     }
 }
 
 impl Recorder for FanoutRecorder {
-    fn register_counter(&self, key: Key, metadata: Metadata, _description: &'static str) -> Counter {
+    fn register_counter(
+        &self,
+        key: Key,
+        metadata: Metadata,
+        _description: &'static str,
+    ) -> Counter {
         self.register_counter(&key, &metadata)
     }
 
@@ -149,13 +164,18 @@ impl Recorder for FanoutRecorder {
         self.register_gauge(&key, &metadata)
     }
 
-    fn register_histogram(&self, key: Key, metadata: Metadata, _description: &'static str) -> Histogram {
+    fn register_histogram(
+        &self,
+        key: Key,
+        metadata: Metadata,
+        _description: &'static str,
+    ) -> Histogram {
         self.register_histogram(&key, &metadata)
     }
 
     fn increment_counter(&self, key: Key, value: u64) {
         let name = key.name();
-        
+
         // Prometheus
         if self.enabled_prometheus {
             if let Some(counter) = self.counters.read().get(name) {
@@ -168,7 +188,8 @@ impl Recorder for FanoutRecorder {
 
         // OTLP
         if self.enabled_otlp {
-            global::get_meter_provider().meter("mediaedge")
+            global::get_meter_provider()
+                .meter("mediaedge")
                 .u64_counter(name)
                 .init()
                 .add(value, &[]);
@@ -177,7 +198,7 @@ impl Recorder for FanoutRecorder {
 
     fn decrement_gauge(&self, key: Key, value: f64) {
         let name = key.name();
-        
+
         if self.enabled_prometheus {
             if let Some(gauge) = self.gauges.read().get(name) {
                 gauge.decrement(value);
@@ -185,7 +206,8 @@ impl Recorder for FanoutRecorder {
         }
 
         if self.enabled_otlp {
-            global::get_meter_provider().meter("mediaedge")
+            global::get_meter_provider()
+                .meter("mediaedge")
                 .f64_gauge(name)
                 .init()
                 .record(-value, &[]);
@@ -194,7 +216,7 @@ impl Recorder for FanoutRecorder {
 
     fn increment_gauge(&self, key: Key, value: f64) {
         let name = key.name();
-        
+
         if self.enabled_prometheus {
             if let Some(gauge) = self.gauges.read().get(name) {
                 gauge.increment(value);
@@ -202,7 +224,8 @@ impl Recorder for FanoutRecorder {
         }
 
         if self.enabled_otlp {
-            global::get_meter_provider().meter("mediaedge")
+            global::get_meter_provider()
+                .meter("mediaedge")
                 .f64_gauge(name)
                 .init()
                 .record(value, &[]);
@@ -211,7 +234,7 @@ impl Recorder for FanoutRecorder {
 
     fn set_gauge(&self, key: Key, value: f64) {
         let name = key.name();
-        
+
         if self.enabled_prometheus {
             if let Some(gauge) = self.gauges.read().get(name) {
                 gauge.set(value);
@@ -219,7 +242,8 @@ impl Recorder for FanoutRecorder {
         }
 
         if self.enabled_otlp {
-            global::get_meter_provider().meter("mediaedge")
+            global::get_meter_provider()
+                .meter("mediaedge")
                 .f64_gauge(name)
                 .init()
                 .record(value, &[]);
@@ -228,7 +252,7 @@ impl Recorder for FanoutRecorder {
 
     fn record_histogram(&self, key: Key, value: f64) {
         let name = key.name();
-        
+
         if self.enabled_prometheus {
             if let Some(histogram) = self.histograms.read().get(name) {
                 histogram.record(value);
@@ -236,7 +260,8 @@ impl Recorder for FanoutRecorder {
         }
 
         if self.enabled_otlp {
-            global::get_meter_provider().meter("mediaedge")
+            global::get_meter_provider()
+                .meter("mediaedge")
                 .f64_histogram(name)
                 .init()
                 .record(value, &[]);
@@ -260,11 +285,16 @@ impl<S> tracing_subscriber::Layer<S> for FanoutLayer
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
-    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &tracing::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        id: &tracing::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         // Create OpenTelemetry span
         let span_name = attrs.metadata().name();
         let otel_span = self.tracer.start(span_name.to_string());
-        
+
         // Store OTel span in tracing span extensions
         if let Some(span) = ctx.span(id) {
             let mut extensions = span.extensions_mut();
@@ -272,7 +302,12 @@ where
         }
     }
 
-    fn on_record(&self, id: &tracing::Id, values: &tracing::span::Record<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_record(
+        &self,
+        id: &tracing::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         if let Some(span) = ctx.span(id) {
             let mut extensions = span.extensions_mut();
             if let Some(otel_span) = extensions.get_mut::<opentelemetry::trace::Span>() {
@@ -325,13 +360,19 @@ impl tracing::field::Visit for OtelVisitor<'_> {
         self.0.set_attribute(KeyValue::new(field.name(), value));
     }
 
-    fn record_error(&mut self, field: &tracing::field::Field, value: &(dyn std::error::Error + 'static)) {
-        self.0.set_attribute(KeyValue::new(field.name(), value.to_string()));
+    fn record_error(
+        &mut self,
+        field: &tracing::field::Field,
+        value: &(dyn std::error::Error + 'static),
+    ) {
+        self.0
+            .set_attribute(KeyValue::new(field.name(), value.to_string()));
         self.0.record_error(value);
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0.set_attribute(KeyValue::new(field.name(), format!("{:?}", value)));
+        self.0
+            .set_attribute(KeyValue::new(field.name(), format!("{:?}", value)));
     }
 }
 
@@ -344,7 +385,7 @@ mod tests {
     fn test_fanout_recorder_creation() {
         let builder = PrometheusBuilder::new();
         let handle = builder.install_recorder().unwrap();
-        
+
         let recorder = FanoutRecorder::new(Some(handle), true, false);
         assert!(recorder.enabled_prometheus);
         assert!(!recorder.enabled_otlp);
@@ -354,7 +395,7 @@ mod tests {
     fn test_fanout_recorder_both() {
         let builder = PrometheusBuilder::new();
         let handle = builder.install_recorder().unwrap();
-        
+
         let recorder = FanoutRecorder::new(Some(handle), true, true);
         assert!(recorder.enabled_prometheus);
         assert!(recorder.enabled_otlp);

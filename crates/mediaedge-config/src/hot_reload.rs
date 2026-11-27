@@ -10,18 +10,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
+    Router,
     body::Body,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
-    Router,
 };
 use serde_json::json;
-use tokio::signal::unix::{signal, SignalKind};
-use tracing::{info, warn, error};
+use tokio::signal::unix::{SignalKind, signal};
+use tracing::{error, info, warn};
 
-use crate::loader::{ConfigLoader, ConfigError, LoadedConfig};
+use crate::loader::{ConfigError, ConfigLoader, LoadedConfig};
 use crate::types::ServiceConfig;
 
 /// Shared state for hot-reload endpoint.
@@ -51,14 +51,16 @@ where
 {
     // Optional: Require admin token
     if let Some(admin_token) = std::env::var("MEDIAEDGE_ADMIN_TOKEN").ok() {
-        let auth_header = headers.get("authorization")
+        let auth_header = headers
+            .get("authorization")
             .and_then(|h| h.to_str().ok())
             .unwrap_or("");
         if !auth_header.contains(&admin_token) {
             return (
                 StatusCode::UNAUTHORIZED,
                 json!({ "error": "Invalid admin token" }).to_string(),
-            ).into_response();
+            )
+                .into_response();
         }
     }
 
@@ -67,49 +69,55 @@ where
     match state.loader.reload() {
         Ok(changed) => {
             let version = state.loader.meta().version;
-            info!("Config reload completed for {} (version {}, changed: {})", 
-                state.service_name, version, changed);
+            info!(
+                "Config reload completed for {} (version {}, changed: {})",
+                state.service_name, version, changed
+            );
             (
                 StatusCode::OK,
-                json!({ 
-                    "status": "ok", 
+                json!({
+                    "status": "ok",
                     "version": version,
                     "changed": changed,
                     "service": state.service_name,
-                }).to_string(),
-            ).into_response()
+                })
+                .to_string(),
+            )
+                .into_response()
         }
         Err(e) => {
             error!("Config reload failed for {}: {}", state.service_name, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ 
+                json!({
                     "error": "Config reload failed",
                     "details": e.to_string(),
                     "service": state.service_name,
-                }).to_string(),
-            ).into_response()
+                })
+                .to_string(),
+            )
+                .into_response()
         }
     }
 }
 
 /// GET /api/v1/config-version - Get current config version.
-async fn config_version_handler<C>(
-    State(state): State<HotReloadState<C>>,
-) -> Response
+async fn config_version_handler<C>(State(state): State<HotReloadState<C>>) -> Response
 where
     C: Clone + Send + Sync + 'static,
 {
     let meta = state.loader.meta();
     (
         StatusCode::OK,
-        json!({ 
+        json!({
             "version": meta.version,
             "source": meta.source,
             "loaded_at": meta.loaded_at.to_rfc3339(),
             "service": meta.service,
-        }).to_string(),
-    ).into_response()
+        })
+        .to_string(),
+    )
+        .into_response()
 }
 
 /// Spawn SIGHUP handler for config reload.
@@ -125,8 +133,10 @@ where
             match loader.reload() {
                 Ok(changed) => {
                     let version = loader.meta().version;
-                    info!("SIGHUP config reload completed for {} (version {}, changed: {})", 
-                        service_name, version, changed);
+                    info!(
+                        "SIGHUP config reload completed for {} (version {}, changed: {})",
+                        service_name, version, changed
+                    );
                 }
                 Err(e) => {
                     error!("SIGHUP config reload failed for {}: {}", service_name, e);
@@ -137,8 +147,11 @@ where
 }
 
 /// Spawn periodic config validation (optional).
-pub fn spawn_config_validator<C>(loader: Arc<ConfigLoader<C>>, service_name: String, interval: Duration)
-where
+pub fn spawn_config_validator<C>(
+    loader: Arc<ConfigLoader<C>>,
+    service_name: String,
+    interval: Duration,
+) where
     C: Clone + Send + Sync + 'static,
 {
     tokio::spawn(async move {
@@ -148,7 +161,10 @@ where
             // Validate current config is still valid
             let config = loader.config();
             if let Err(e) = config.validate() {
-                warn!("Periodic config validation failed for {}: {}", service_name, e);
+                warn!(
+                    "Periodic config validation failed for {}: {}",
+                    service_name, e
+                );
             }
         }
     });
@@ -171,7 +187,9 @@ pub fn spawn_file_watcher<C, P: AsRef<std::path::Path>>(
     C: Clone + Send + Sync + 'static,
 {
     let path = path.as_ref().to_path_buf();
-    let mut last_modified = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+    let mut last_modified = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok());
 
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -186,8 +204,10 @@ pub fn spawn_file_watcher<C, P: AsRef<std::path::Path>>(
                         match loader.reload() {
                             Ok(changed) => {
                                 let version = loader.meta().version;
-                                info!("File watcher reload completed for {} (version {}, changed: {})", 
-                                    service_name, version, changed);
+                                info!(
+                                    "File watcher reload completed for {} (version {}, changed: {})",
+                                    service_name, version, changed
+                                );
                                 last_modified = Some(modified);
                             }
                             Err(e) => {
@@ -230,7 +250,8 @@ enabled = true
 "#;
         std::io::Write::write_all(&mut file, config.as_bytes()).unwrap();
 
-        let loader = Arc::new(crate::loader::ConfigLoader::<GatewayConfig>::from_file(file.path()).unwrap());
+        let loader =
+            Arc::new(crate::loader::ConfigLoader::<GatewayConfig>::from_file(file.path()).unwrap());
         let state = HotReloadState {
             loader: loader.clone(),
             service_name: "gateway".to_string(),

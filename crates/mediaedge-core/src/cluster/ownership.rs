@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 use tracing::{debug, info, warn};
 
-use crate::gossip::{GossipProtocol, GossipPayload, NodeId, OwnershipEntry};
+use crate::gossip::{GossipPayload, GossipProtocol, NodeId, OwnershipEntry};
 use mediaedge_observability::MetricsRegistry;
 
 /// Ownership manager configuration.
@@ -109,7 +109,11 @@ impl OwnershipManager {
         let _ = self.shutdown_tx.send(true);
 
         // Release all local ownership
-        let keys: Vec<String> = self.local_ownership.iter().map(|e| e.key().clone()).collect();
+        let keys: Vec<String> = self
+            .local_ownership
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
         for key in keys {
             self.release(&key).await?;
         }
@@ -118,9 +122,13 @@ impl OwnershipManager {
     }
 
     /// Try to acquire ownership of a key.
-    pub async fn acquire(&self, key: &str, metadata: HashMap<String, String>) -> anyhow::Result<bool> {
+    pub async fn acquire(
+        &self,
+        key: &str,
+        metadata: HashMap<String, String>,
+    ) -> anyhow::Result<bool> {
         let node_id = self.get_node_id().await?;
-        
+
         // Check if already owned locally
         if self.local_ownership.contains_key(key) {
             return Ok(true);
@@ -134,7 +142,7 @@ impl OwnershipManager {
                     self.claim_local(key, state.clone()).await?;
                     return Ok(true);
                 }
-                
+
                 // Check if lease expired
                 if let Some(expires) = state.lease_expires {
                     if Instant::now() > expires {
@@ -148,20 +156,30 @@ impl OwnershipManager {
         }
 
         // Claim ownership
-        self.claim_local(key, OwnershipState {
-            key: key.to_string(),
-            owner: Some(node_id.clone()),
-            lease_expires: Some(Instant::now() + Duration::from_secs(self.config.lease_duration_secs)),
-            incarnation: 1,
-            metadata,
-            claimants: Vec::new(),
-        }).await?;
+        self.claim_local(
+            key,
+            OwnershipState {
+                key: key.to_string(),
+                owner: Some(node_id.clone()),
+                lease_expires: Some(
+                    Instant::now() + Duration::from_secs(self.config.lease_duration_secs),
+                ),
+                incarnation: 1,
+                metadata,
+                claimants: Vec::new(),
+            },
+        )
+        .await?;
 
         // Broadcast ownership via gossip
         self.broadcast_ownership(key).await?;
 
-        let _ = self.event_tx.try_send(OwnershipEvent::Acquired { key: key.to_string() });
-        self.metrics.counter("ownership_acquired_total", "Ownership acquired").increment(1);
+        let _ = self.event_tx.try_send(OwnershipEvent::Acquired {
+            key: key.to_string(),
+        });
+        self.metrics
+            .counter("ownership_acquired_total", "Ownership acquired")
+            .increment(1);
 
         Ok(true)
     }
@@ -179,15 +197,23 @@ impl OwnershipManager {
             // Broadcast release
             self.broadcast_ownership(key).await?;
 
-            let _ = self.event_tx.try_send(OwnershipEvent::Released { key: key.to_string() });
-            self.metrics.counter("ownership_released_total", "Ownership released").increment(1);
+            let _ = self.event_tx.try_send(OwnershipEvent::Released {
+                key: key.to_string(),
+            });
+            self.metrics
+                .counter("ownership_released_total", "Ownership released")
+                .increment(1);
         }
         Ok(())
     }
 
     /// Force release ownership (e.g., on node shutdown).
     pub async fn force_release_all(&self) -> anyhow::Result<()> {
-        let keys: Vec<String> = self.local_ownership.iter().map(|e| e.key().clone()).collect();
+        let keys: Vec<String> = self
+            .local_ownership
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
         for key in keys {
             self.release(&key).await?;
         }
@@ -196,8 +222,7 @@ impl OwnershipManager {
 
     /// Get current owner of a key.
     pub fn get_owner(&self, key: &str) -> Option<NodeId> {
-        self.ownership.get(key)
-            .and_then(|s| s.owner.clone())
+        self.ownership.get(key).and_then(|s| s.owner.clone())
     }
 
     /// Check if we own a key.
@@ -207,7 +232,10 @@ impl OwnershipManager {
 
     /// Get all keys we own.
     pub fn owned_keys(&self) -> Vec<String> {
-        self.local_ownership.iter().map(|e| e.key().clone()).collect()
+        self.local_ownership
+            .iter()
+            .map(|e| e.key().clone())
+            .collect()
     }
 
     /// Get ownership state for a key.
@@ -218,9 +246,10 @@ impl OwnershipManager {
     /// Renew lease for a key we own.
     async fn renew_lease(&self, key: &str) -> anyhow::Result<()> {
         if let Some(mut state) = self.local_ownership.get_mut(key) {
-            state.lease_expires = Some(Instant::now() + Duration::from_secs(self.config.lease_duration_secs));
+            state.lease_expires =
+                Some(Instant::now() + Duration::from_secs(self.config.lease_duration_secs));
             state.incarnation += 1;
-            
+
             // Update global state
             if let Some(mut global_state) = self.ownership.get_mut(key) {
                 global_state.lease_expires = state.lease_expires;
@@ -230,8 +259,12 @@ impl OwnershipManager {
             // Broadcast renewal
             self.broadcast_ownership(key).await?;
 
-            let _ = self.event_tx.try_send(OwnershipEvent::Renewed { key: key.to_string() });
-            self.metrics.counter("ownership_renewed_total", "Ownership renewed").increment(1);
+            let _ = self.event_tx.try_send(OwnershipEvent::Renewed {
+                key: key.to_string(),
+            });
+            self.metrics
+                .counter("ownership_renewed_total", "Ownership renewed")
+                .increment(1);
         }
         Ok(())
     }
@@ -247,7 +280,7 @@ impl OwnershipManager {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(config.renewal_interval_secs));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -281,9 +314,10 @@ impl OwnershipManager {
         config: &OwnershipConfig,
     ) -> anyhow::Result<()> {
         if let Some(mut state) = local_ownership.get_mut(key) {
-            state.lease_expires = Some(Instant::now() + Duration::from_secs(config.lease_duration_secs));
+            state.lease_expires =
+                Some(Instant::now() + Duration::from_secs(config.lease_duration_secs));
             state.incarnation += 1;
-            
+
             if let Some(mut global_state) = ownership.get_mut(key) {
                 global_state.lease_expires = state.lease_expires;
                 global_state.incarnation = state.incarnation;
@@ -302,7 +336,7 @@ impl OwnershipManager {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(5));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -329,12 +363,12 @@ impl OwnershipManager {
                                 state.owner = None;
                                 state.lease_expires = None;
                                 state.incarnation += 1;
-                                
+
                                 // If we were the owner, we lost it
                                 if local_ownership.remove(&key).is_some() {
-                                    let _ = event_tx.try_send(OwnershipEvent::Lost { 
-                                        key: key.clone(), 
-                                        new_owner: NodeId::new("unknown") 
+                                    let _ = event_tx.try_send(OwnershipEvent::Lost {
+                                        key: key.clone(),
+                                        new_owner: NodeId::new("unknown")
                                     });
                                 }
                             }
@@ -369,14 +403,17 @@ impl OwnershipManager {
     /// Update ownership from gossip payload.
     pub fn update_from_gossip(&self, entries: Vec<OwnershipEntry>) {
         for entry in entries {
-            let mut state = self.ownership.entry(entry.key.clone()).or_insert_with(|| OwnershipState {
-                key: entry.key.clone(),
-                owner: None,
-                lease_expires: None,
-                incarnation: 0,
-                metadata: HashMap::new(),
-                claimants: Vec::new(),
-            });
+            let mut state =
+                self.ownership
+                    .entry(entry.key.clone())
+                    .or_insert_with(|| OwnershipState {
+                        key: entry.key.clone(),
+                        owner: None,
+                        lease_expires: None,
+                        incarnation: 0,
+                        metadata: HashMap::new(),
+                        claimants: Vec::new(),
+                    });
 
             // LWW based on incarnation
             if entry.incarnation > state.incarnation {
@@ -407,7 +444,9 @@ impl OwnershipManager {
     pub fn stats(&self) -> OwnershipStats {
         let total = self.ownership.len();
         let local = self.local_ownership.len();
-        let expired = self.ownership.iter()
+        let expired = self
+            .ownership
+            .iter()
             .filter(|e| e.lease_expires.map_or(false, |exp| Instant::now() > exp))
             .count();
 

@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use figment::{Figment, providers::Format, providers::Toml, providers::Env, providers::Serialized};
 use figment::value::{Dict, Map};
+use figment::{Figment, providers::Env, providers::Format, providers::Serialized, providers::Toml};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -83,7 +83,9 @@ where
     /// Create a new config loader from a Figment.
     pub fn new(figment: Figment) -> ConfigResult<Self> {
         let config: C = figment.clone().extract()?;
-        config.validate().map_err(|e| ConfigError::Validation(e.to_string()))?;
+        config
+            .validate()
+            .map_err(|e| ConfigError::Validation(e.to_string()))?;
 
         let meta = ConfigMeta {
             version: 1,
@@ -167,7 +169,9 @@ where
     /// Hot reload configuration from source.
     /// Returns true if config changed.
     pub fn reload(&self) -> ConfigResult<bool> {
-        let path = self.config_path.as_ref()
+        let path = self
+            .config_path
+            .as_ref()
             .ok_or_else(|| ConfigError::HotReload("No config file path for reload".to_string()))?;
 
         info!("Reloading configuration from {}", path);
@@ -179,7 +183,9 @@ where
             .select("config");
 
         let new_config: C = new_figment.extract()?;
-        new_config.validate().map_err(|e| ConfigError::Validation(e.to_string()))?;
+        new_config
+            .validate()
+            .map_err(|e| ConfigError::Validation(e.to_string()))?;
 
         let old_version = self.current.load().meta.version;
         let new_version = old_version + 1;
@@ -196,13 +202,18 @@ where
 
         self.current.store(Arc::new(new_loaded));
 
-        info!("Configuration reloaded successfully (version {})", new_version);
+        info!(
+            "Configuration reloaded successfully (version {})",
+            new_version
+        );
         Ok(true)
     }
 
     /// Reload with new CLI overrides (for runtime config changes).
     pub fn reload_with_cli(&self, cli_overrides: Dict) -> ConfigResult<bool> {
-        let path = self.config_path.as_ref()
+        let path = self
+            .config_path
+            .as_ref()
             .ok_or_else(|| ConfigError::HotReload("No config file path for reload".to_string()))?;
 
         info!("Reloading configuration with CLI overrides");
@@ -215,7 +226,9 @@ where
             .select("config");
 
         let new_config: C = new_figment.extract()?;
-        new_config.validate().map_err(|e| ConfigError::Validation(e.to_string()))?;
+        new_config
+            .validate()
+            .map_err(|e| ConfigError::Validation(e.to_string()))?;
 
         let old_version = self.current.load().meta.version;
         let new_version = old_version + 1;
@@ -232,7 +245,10 @@ where
 
         self.current.store(Arc::new(new_loaded));
 
-        info!("Configuration reloaded with CLI overrides (version {})", new_version);
+        info!(
+            "Configuration reloaded with CLI overrides (version {})",
+            new_version
+        );
         Ok(true)
     }
 
@@ -281,7 +297,9 @@ pub fn load_service_config<P: AsRef<Path>>(path: P) -> ConfigResult<ConfigLoader
     }
 
     let figment = Figment::new()
-        .merge(Serialized::defaults(ServiceConfig::Gateway(crate::types::GatewayConfig::default())))
+        .merge(Serialized::defaults(ServiceConfig::Gateway(
+            crate::types::GatewayConfig::default(),
+        )))
         .merge(Toml::file(path))
         .merge(Env::prefixed("MEDIAEDGE_").split("_"))
         .select("config");
@@ -292,15 +310,14 @@ pub fn load_service_config<P: AsRef<Path>>(path: P) -> ConfigResult<ConfigLoader
 /// Generate JSON schema for a config type.
 pub fn generate_json_schema<C: Serialize + schemars::JsonSchema>() -> ConfigResult<String> {
     let schema = schemars::schema_for!(C);
-    serde_json::to_string_pretty(&schema)
-        .map_err(|e| ConfigError::Invalid(e.to_string()))
+    serde_json::to_string_pretty(&schema).map_err(|e| ConfigError::Invalid(e.to_string()))
 }
 
 /// Generate OpenAPI schema component for a config type.
-pub fn generate_openapi_schema<C: Serialize + schemars::JsonSchema>() -> ConfigResult<utoipa::openapi::Schema> {
+pub fn generate_openapi_schema<C: Serialize + schemars::JsonSchema>()
+-> ConfigResult<utoipa::openapi::Schema> {
     let schema = schemars::schema_for!(C);
-    utoipa::openapi::schema::try_from(schema)
-        .map_err(|e| ConfigError::Invalid(e.to_string()))
+    utoipa::openapi::schema::try_from(schema).map_err(|e| ConfigError::Invalid(e.to_string()))
 }
 
 /// Validate a TOML config file without loading.
@@ -316,7 +333,9 @@ pub fn validate_config_file<P: AsRef<Path>>(path: P) -> ConfigResult<()> {
         .select("config");
 
     let config: ServiceConfig = figment.extract()?;
-    config.validate().map_err(|e| ConfigError::Validation(e.to_string()))?;
+    config
+        .validate()
+        .map_err(|e| ConfigError::Validation(e.to_string()))?;
 
     Ok(())
 }
@@ -485,7 +504,10 @@ path = "/api/v1/admin"
         assert!(changed);
         assert_eq!(loader.meta().version, 2);
         assert_eq!(loader.config().server.port, 9090);
-        assert_eq!(loader.config().auth.jwt.as_ref().unwrap().secret, "new-secret");
+        assert_eq!(
+            loader.config().auth.jwt.as_ref().unwrap().secret,
+            "new-secret"
+        );
     }
 
     #[test]
@@ -579,13 +601,13 @@ port = 99999  # Invalid port > 65535
     #[test]
     fn test_env_override() {
         let mut file = create_test_config();
-        
+
         // Set env var
         std::env::set_var("MEDIAEDGE_SERVER__PORT", "7070");
-        
+
         let loader = ConfigLoader::<GatewayConfig>::from_file(file.path()).unwrap();
         assert_eq!(loader.config().server.port, 7070);
-        
+
         std::env::remove_var("MEDIAEDGE_SERVER__PORT");
     }
 
@@ -600,7 +622,8 @@ port = 99999  # Invalid port > 65535
         let edge = ServiceConfig::EdgeNode(EdgeNodeConfig::default());
         assert_eq!(edge.service_name(), "edge-node");
 
-        let replication = ServiceConfig::ReplicationCoordinator(ReplicationCoordinatorConfig::default());
+        let replication =
+            ServiceConfig::ReplicationCoordinator(ReplicationCoordinatorConfig::default());
         assert_eq!(replication.service_name(), "replication-coordinator");
 
         let processor = ServiceConfig::MediaProcessor(MediaProcessorConfig::default());

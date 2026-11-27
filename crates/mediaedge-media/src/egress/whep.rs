@@ -13,11 +13,11 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dashmap::DashMap;
-use str0m::{PeerConnection, RtcConfiguration, MediaDirection, MediaKind};
-use str0m::media::MediaDirection;
 use str0m::ice::IceConnectionState;
+use str0m::media::MediaDirection;
 use str0m::sdp::SessionDescription;
-use tokio::sync::{mpsc, RwLock};
+use str0m::{MediaDirection, MediaKind, PeerConnection, RtcConfiguration};
+use tokio::sync::{RwLock, mpsc};
 use tracing::{debug, error, info, warn};
 
 use crate::fragment::{Fragment, FragmentBroadcasterRegistry, FragmentSubscriber, StreamId};
@@ -113,7 +113,8 @@ pub async fn create_whep_session(
     config: HttpProtocolConfig,
 ) -> anyhow::Result<SessionDescription> {
     // Subscribe to the stream
-    let subscriber = registry.subscribe_with_buffer(stream_id.clone(), 1000)
+    let subscriber = registry
+        .subscribe_with_buffer(stream_id.clone(), 1000)
         .ok_or_else(|| anyhow::anyhow!("Failed to subscribe to stream"))?;
 
     // Create peer connection
@@ -125,7 +126,7 @@ pub async fn create_whep_session(
 
     // Add transceiver for video
     let video_transceiver = pc.add_transceiver(MediaKind::Video, MediaDirection::SendOnly)?;
-    
+
     // Configure simulcast
     let simulcast_layers = vec![
         SimulcastLayer {
@@ -189,9 +190,12 @@ async fn start_whep_media_forwarding(
             // 2. Write the fragment data to the appropriate track
             // 3. Handle simulcast layers
             // 4. Handle SCTE-35 via data channels
-            
-            debug!("WHEP forwarding fragment for session {}: {} bytes", 
-                session_id, fragment.payload.len());
+
+            debug!(
+                "WHEP forwarding fragment for session {}: {} bytes",
+                session_id,
+                fragment.payload.len()
+            );
         }
         info!("WHEP media forwarding ended for session: {}", session_id);
     });
@@ -262,13 +266,11 @@ pub struct IceServerConfig {
 impl Default for WhepEgressConfig {
     fn default() -> Self {
         Self {
-            ice_servers: vec![
-                IceServerConfig {
-                    urls: vec!["stun:stun.l.google.com:19302".to_string()],
-                    username: None,
-                    credential: None,
-                },
-            ],
+            ice_servers: vec![IceServerConfig {
+                urls: vec!["stun:stun.l.google.com:19302".to_string()],
+                username: None,
+                credential: None,
+            }],
             simulcast_enabled: true,
             data_channels_enabled: true,
             e2ee_enabled: false,
@@ -356,15 +358,13 @@ mod tests {
             state: WhepSessionState::New,
             created_at: Instant::now(),
             last_activity: Instant::now(),
-            simulcast_layers: vec![
-                SimulcastLayer {
-                    rid: "h".to_string(),
-                    scale_resolution_down_by: 1.0,
-                    max_bitrate_bps: 5_000_000,
-                    max_framerate: 30,
-                    active: true,
-                },
-            ],
+            simulcast_layers: vec![SimulcastLayer {
+                rid: "h".to_string(),
+                scale_resolution_down_by: 1.0,
+                max_bitrate_bps: 5_000_000,
+                max_framerate: 30,
+                active: true,
+            }],
             data_channel: None,
         };
 
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn test_whep_config() {
         let config = WhepEgressConfig::default();
-        
+
         assert!(!config.ice_servers.is_empty());
         assert!(config.simulcast_enabled);
         assert!(config.data_channels_enabled);

@@ -29,10 +29,10 @@ pub struct FederationLinkState {
     pub remote_cluster_id: String,
     pub remote_endpoint: String,
     pub status: FederationLinkStatus,
-    pub last_connected: Option<u64>,      // Unix timestamp
+    pub last_connected: Option<u64>, // Unix timestamp
     pub last_error: Option<String>,
     pub reconnect_attempts: u32,
-    pub next_reconnect_at: Option<u64>,   // Unix timestamp
+    pub next_reconnect_at: Option<u64>, // Unix timestamp
     pub streams_mirrored: Vec<String>,
     pub bytes_received: u64,
     pub bytes_sent: u64,
@@ -58,7 +58,7 @@ pub struct FederationLinkConfig {
     pub link_id: String,
     pub remote_cluster_id: String,
     pub remote_endpoint: String,
-    pub streams: Vec<String>,              // Stream patterns to mirror
+    pub streams: Vec<String>, // Stream patterns to mirror
     pub mTLS_enabled: bool,
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
@@ -130,7 +130,11 @@ pub enum FederationEvent {
 
 impl FederationManager {
     /// Create a new federation manager.
-    pub fn new(config: FederationConfig, local_cluster_id: String, metrics: Arc<MetricsRegistry>) -> Self {
+    pub fn new(
+        config: FederationConfig,
+        local_cluster_id: String,
+        metrics: Arc<MetricsRegistry>,
+    ) -> Self {
         let (event_tx, event_rx) = mpsc::channel(1000);
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
@@ -147,7 +151,10 @@ impl FederationManager {
 
     /// Add a federation link.
     pub async fn add_link(&self, config: FederationLinkConfig) -> anyhow::Result<()> {
-        info!("Adding federation link: {} -> {}", config.link_id, config.remote_cluster_id);
+        info!(
+            "Adding federation link: {} -> {}",
+            config.link_id, config.remote_cluster_id
+        );
 
         let state = FederationLinkState {
             link_id: config.link_id.clone(),
@@ -166,7 +173,7 @@ impl FederationManager {
         };
 
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
-        
+
         let link = FederationLink {
             config: config.clone(),
             state,
@@ -179,7 +186,9 @@ impl FederationManager {
         // Start link connection task
         self.start_link_task(config.link_id.clone()).await;
 
-        self.metrics.counter("federation_links_total", "Total federation links").increment(1);
+        self.metrics
+            .counter("federation_links_total", "Total federation links")
+            .increment(1);
         Ok(())
     }
 
@@ -189,14 +198,16 @@ impl FederationManager {
 
         if let Some((_, link)) = self.links.remove(link_id) {
             let _ = link.shutdown_tx.send(true);
-            
+
             // Disconnect if connected
             if let Some(conn) = link.connection {
                 // In real implementation: close MoQ connection
             }
         }
 
-        self.metrics.counter("federation_links_removed_total", "Removed federation links").increment(1);
+        self.metrics
+            .counter("federation_links_removed_total", "Removed federation links")
+            .increment(1);
         Ok(())
     }
 
@@ -205,7 +216,7 @@ impl FederationManager {
         if let Some(mut link) = self.links.get_mut(link_id) {
             link.state.status = FederationLinkStatus::Paused;
             link.state.updated_at = chrono::Utc::now().timestamp() as u64;
-            
+
             // Disconnect if connected
             if let Some(conn) = link.connection.take() {
                 // In real implementation: close MoQ connection
@@ -305,7 +316,10 @@ impl FederationManager {
         link.state.status = FederationLinkStatus::Connecting;
         link.state.updated_at = chrono::Utc::now().timestamp() as u64;
 
-        info!("Attempting federation connection to: {}", link.config.remote_endpoint);
+        info!(
+            "Attempting federation connection to: {}",
+            link.config.remote_endpoint
+        );
 
         // In real implementation: establish MoQ connection with mTLS
         // For now, simulate connection
@@ -324,11 +338,13 @@ impl FederationManager {
                 // Subscribe to streams
                 Self::subscribe_to_streams(&mut link).await;
 
-                let _ = event_tx.try_send(FederationEvent::LinkConnected { 
-                    link_id: link_id.to_string() 
+                let _ = event_tx.try_send(FederationEvent::LinkConnected {
+                    link_id: link_id.to_string(),
                 });
 
-                metrics.counter("federation_connections_total", "Federation connections").increment(1);
+                metrics
+                    .counter("federation_connections_total", "Federation connections")
+                    .increment(1);
 
                 // Start health check loop
                 Self::start_health_check(links.clone(), link_id.to_string(), metrics.clone()).await;
@@ -340,18 +356,27 @@ impl FederationManager {
                 link.state.updated_at = chrono::Utc::now().timestamp() as u64;
 
                 // Calculate next reconnect with exponential backoff and jitter
-                let delay = Self::calculate_reconnect_delay(&link.config, link.state.reconnect_attempts);
-                link.state.next_reconnect_at = Some(chrono::Utc::now().timestamp() as u64 + delay.as_secs());
+                let delay =
+                    Self::calculate_reconnect_delay(&link.config, link.state.reconnect_attempts);
+                link.state.next_reconnect_at =
+                    Some(chrono::Utc::now().timestamp() as u64 + delay.as_secs());
 
-                warn!("Federation connection failed for {}: {} (attempt {}, next in {:?})", 
-                    link_id, e, link.state.reconnect_attempts, delay);
+                warn!(
+                    "Federation connection failed for {}: {} (attempt {}, next in {:?})",
+                    link_id, e, link.state.reconnect_attempts, delay
+                );
 
-                let _ = event_tx.try_send(FederationEvent::LinkFailed { 
-                    link_id: link_id.to_string(), 
-                    error: e.to_string() 
+                let _ = event_tx.try_send(FederationEvent::LinkFailed {
+                    link_id: link_id.to_string(),
+                    error: e.to_string(),
                 });
 
-                metrics.counter("federation_connection_failures_total", "Federation connection failures").increment(1);
+                metrics
+                    .counter(
+                        "federation_connection_failures_total",
+                        "Federation connection failures",
+                    )
+                    .increment(1);
             }
         }
     }
@@ -364,7 +389,7 @@ impl FederationManager {
 
         // Exponential backoff: base * 2^attempt
         let delay = (base * 2_f64.powi(attempt as i32)).min(max);
-        
+
         // Add jitter: ±jitter%
         let jitter_range = delay * jitter;
         let jitter_offset = rand::rng().random_range(-jitter_range..=jitter_range);
@@ -374,7 +399,9 @@ impl FederationManager {
     }
 
     /// Establish MoQ connection to remote cluster.
-    async fn establish_moq_connection(config: &FederationLinkConfig) -> anyhow::Result<FederationConnection> {
+    async fn establish_moq_connection(
+        config: &FederationLinkConfig,
+    ) -> anyhow::Result<FederationConnection> {
         // In real implementation:
         // 1. Parse remote endpoint (moq:// or https://)
         // 2. Set up TLS config (mTLS if enabled)
@@ -384,7 +411,7 @@ impl FederationManager {
 
         // Simulate connection
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         Ok(FederationConnection {
             connected_at: Instant::now(),
             last_health_check: Instant::now(),
@@ -416,7 +443,8 @@ impl FederationManager {
         };
 
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(link_config.health_check_interval_secs));
+            let mut interval =
+                interval(Duration::from_secs(link_config.health_check_interval_secs));
 
             loop {
                 interval.tick().await;
@@ -438,13 +466,19 @@ impl FederationManager {
                     link.state.status = FederationLinkStatus::Reconnecting;
                     link.state.last_error = Some("Health check failed".to_string());
                     link.state.updated_at = chrono::Utc::now().timestamp() as u64;
-                    
-                    let delay = Self::calculate_reconnect_delay(&link.config, link.state.reconnect_attempts);
-                    link.state.next_reconnect_at = Some(chrono::Utc::now().timestamp() as u64 + delay.as_secs());
+
+                    let delay = Self::calculate_reconnect_delay(
+                        &link.config,
+                        link.state.reconnect_attempts,
+                    );
+                    link.state.next_reconnect_at =
+                        Some(chrono::Utc::now().timestamp() as u64 + delay.as_secs());
                     break;
                 }
 
-                link.connection.as_mut().map(|c| c.last_health_check = Instant::now());
+                link.connection
+                    .as_mut()
+                    .map(|c| c.last_health_check = Instant::now());
             }
         });
     }
@@ -485,10 +519,26 @@ impl FederationManager {
     /// Get federation stats.
     pub fn stats(&self) -> FederationStats {
         let total = self.links.len();
-        let connected = self.links.iter().filter(|l| l.state.status == FederationLinkStatus::Connected).count();
-        let connecting = self.links.iter().filter(|l| l.state.status == FederationLinkStatus::Connecting).count();
-        let failed = self.links.iter().filter(|l| l.state.status == FederationLinkStatus::Failed).count();
-        let paused = self.links.iter().filter(|l| l.state.status == FederationLinkStatus::Paused).count();
+        let connected = self
+            .links
+            .iter()
+            .filter(|l| l.state.status == FederationLinkStatus::Connected)
+            .count();
+        let connecting = self
+            .links
+            .iter()
+            .filter(|l| l.state.status == FederationLinkStatus::Connecting)
+            .count();
+        let failed = self
+            .links
+            .iter()
+            .filter(|l| l.state.status == FederationLinkStatus::Failed)
+            .count();
+        let paused = self
+            .links
+            .iter()
+            .filter(|l| l.state.status == FederationLinkStatus::Paused)
+            .count();
 
         FederationStats {
             total_links: total,

@@ -10,11 +10,11 @@
 
 #![warn(missing_docs)]
 
-pub mod ingest;
 pub mod egress;
-pub mod transcode;
 pub mod fragment;
+pub mod ingest;
 pub mod monetization;
+pub mod transcode;
 
 use mediaedge_config::types::GatewayConfig;
 use mediaedge_observability::MetricsRegistry;

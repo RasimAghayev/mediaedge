@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use age::{Encryptor, Decryptor, secrecy::SecretString};
+use age::{Decryptor, Encryptor, secrecy::SecretString};
 use aws_config::BehaviorVersion;
 use aws_sdk_kms::Client as KmsClient;
 use aws_sdk_kms::types::EncryptionAlgorithmSpec;
@@ -20,7 +20,7 @@ use figment::Figment;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Secrets management errors.
 #[derive(Debug, Error)]
@@ -221,10 +221,19 @@ impl SecretsManager {
 
         let age_identity = if let Some(age_config) = &config.age {
             if let Some(identity) = &age_config.identity {
-                Some(identity.parse().map_err(|e| SecretsError::Age(e.to_string()))?)
+                Some(
+                    identity
+                        .parse()
+                        .map_err(|e| SecretsError::Age(e.to_string()))?,
+                )
             } else if let Some(identity_file) = &age_config.identity_file {
                 let content = tokio::fs::read_to_string(identity_file).await?;
-                Some(content.trim().parse().map_err(|e| SecretsError::Age(e.to_string()))?)
+                Some(
+                    content
+                        .trim()
+                        .parse()
+                        .map_err(|e| SecretsError::Age(e.to_string()))?,
+                )
             } else {
                 None
             }
@@ -268,7 +277,9 @@ impl SecretsManager {
                     &default_method,
                     age_recipient.as_deref(),
                     kms_key_id.as_deref(),
-                ).await {
+                )
+                .await
+                {
                     error!("Secret rotation failed: {}", e);
                 } else {
                     info!("Secret rotation completed successfully");
@@ -291,7 +302,10 @@ impl SecretsManager {
     pub async fn get_secret(&self, key: &str) -> SecretsResult<String> {
         // Check cache first
         if let Some(cached) = self.cache.read().await.get(key) {
-            if cached.expires_at.map_or(true, |exp| exp > chrono::Utc::now()) {
+            if cached
+                .expires_at
+                .map_or(true, |exp| exp > chrono::Utc::now())
+            {
                 return Ok(cached.value.clone());
             }
         }
@@ -345,26 +359,36 @@ impl SecretsManager {
             "age" => self.encrypt_age(key, value).await,
             "kms" => self.encrypt_kms(key, value).await,
             "plaintext" => Ok(EncryptedSecret::plaintext(value)),
-            _ => Err(SecretsError::Config(format!("Unknown encryption method: {}", self.config.default_method))),
+            _ => Err(SecretsError::Config(format!(
+                "Unknown encryption method: {}",
+                self.config.default_method
+            ))),
         }
     }
 
     /// Encrypt using Age.
     async fn encrypt_age(&self, key: &str, value: &str) -> SecretsResult<EncryptedSecret> {
-        let age_config = self.config.age.as_ref()
+        let age_config = self
+            .config
+            .age
+            .as_ref()
             .ok_or_else(|| SecretsError::Config("Age config not provided".to_string()))?;
 
-        let recipient = age_config.recipient.parse()
+        let recipient = age_config
+            .recipient
+            .parse()
             .map_err(|e| SecretsError::Age(e.to_string()))?;
 
         let encryptor = Encryptor::with_recipients(vec![Box::new(recipient)]);
         let mut encrypted = Vec::new();
         {
-            let mut writer = encryptor.wrap_output(&mut encrypted, age::Format::Binary)
+            let mut writer = encryptor
+                .wrap_output(&mut encrypted, age::Format::Binary)
                 .map_err(|e| SecretsError::Age(e.to_string()))?;
             std::io::Write::write_all(&mut writer, value.as_bytes())
                 .map_err(|e| SecretsError::Age(e.to_string()))?;
-            writer.finish()
+            writer
+                .finish()
                 .map_err(|e| SecretsError::Age(e.to_string()))?;
         }
 
@@ -380,37 +404,45 @@ impl SecretsManager {
 
     /// Decrypt using Age.
     pub async fn decrypt_age(&self, secret: &EncryptedSecret) -> SecretsResult<String> {
-        let identity = self.age_identity.as_ref()
+        let identity = self
+            .age_identity
+            .as_ref()
             .ok_or_else(|| SecretsError::AgeDecrypt("No Age identity configured".to_string()))?;
 
         let encrypted = BASE64.decode(&secret.payload)?;
-        let decryptor = Decryptor::new(&encrypted[..])
-            .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
+        let decryptor =
+            Decryptor::new(&encrypted[..]).map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
 
         let mut decrypted = Vec::new();
         {
-            let mut reader = decryptor.decrypt(identity)
+            let mut reader = decryptor
+                .decrypt(identity)
                 .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
             std::io::Read::read_to_end(&mut reader, &mut decrypted)
                 .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
         }
 
-        String::from_utf8(decrypted)
-            .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))
+        String::from_utf8(decrypted).map_err(|e| SecretsError::AgeDecrypt(e.to_string()))
     }
 
     /// Encrypt using KMS.
     async fn encrypt_kms(&self, key: &str, value: &str) -> SecretsResult<EncryptedSecret> {
-        let kms_client = self.kms_client.as_ref()
+        let kms_client = self
+            .kms_client
+            .as_ref()
             .ok_or_else(|| SecretsError::Kms("KMS client not configured".to_string()))?;
-        let kms_config = self.config.kms.as_ref()
+        let kms_config = self
+            .config
+            .kms
+            .as_ref()
             .ok_or_else(|| SecretsError::Config("KMS config not provided".to_string()))?;
 
         let mut context = kms_config.encryption_context.clone();
         context.insert("key".to_string(), key.to_string());
         context.insert("service".to_string(), "mediaedge".to_string());
 
-        let result = kms_client.encrypt()
+        let result = kms_client
+            .encrypt()
             .key_id(&kms_config.key_id)
             .plaintext(value.as_bytes())
             .set_encryption_context(Some(context))
@@ -419,7 +451,8 @@ impl SecretsManager {
             .await
             .map_err(|e| SecretsError::Kms(e.to_string()))?;
 
-        let ciphertext = result.ciphertext_blob
+        let ciphertext = result
+            .ciphertext_blob
             .ok_or_else(|| SecretsError::Kms("No ciphertext in response".to_string()))?;
 
         Ok(EncryptedSecret {
@@ -434,16 +467,22 @@ impl SecretsManager {
 
     /// Decrypt using KMS.
     pub async fn decrypt_kms(&self, secret: &EncryptedSecret) -> SecretsResult<String> {
-        let kms_client = self.kms_client.as_ref()
+        let kms_client = self
+            .kms_client
+            .as_ref()
             .ok_or_else(|| SecretsError::Kms("KMS client not configured".to_string()))?;
-        let kms_config = self.config.kms.as_ref()
+        let kms_config = self
+            .config
+            .kms
+            .as_ref()
             .ok_or_else(|| SecretsError::Config("KMS config not provided".to_string()))?;
 
         let ciphertext = BASE64.decode(&secret.payload)?;
         let mut context = kms_config.encryption_context.clone();
         context.insert("service".to_string(), "mediaedge".to_string());
 
-        let result = kms_client.decrypt()
+        let result = kms_client
+            .decrypt()
             .key_id(&kms_config.key_id)
             .ciphertext_blob(ciphertext.into())
             .set_encryption_context(Some(context))
@@ -452,11 +491,11 @@ impl SecretsManager {
             .await
             .map_err(|e| SecretsError::Kms(e.to_string()))?;
 
-        let plaintext = result.plaintext
+        let plaintext = result
+            .plaintext
             .ok_or_else(|| SecretsError::Kms("No plaintext in response".to_string()))?;
 
-        String::from_utf8(plaintext.as_ref().to_vec())
-            .map_err(|e| SecretsError::Kms(e.to_string()))
+        String::from_utf8(plaintext.as_ref().to_vec()).map_err(|e| SecretsError::Kms(e.to_string()))
     }
 
     /// Rotate a specific secret.
@@ -481,9 +520,10 @@ impl SecretsManager {
     pub async fn cache_stats(&self) -> (usize, usize) {
         let cache = self.cache.read().await;
         let total = cache.len();
-        let expired = cache.values().filter(|v| {
-            v.expires_at.map_or(false, |exp| exp <= chrono::Utc::now())
-        }).count();
+        let expired = cache
+            .values()
+            .filter(|v| v.expires_at.map_or(false, |exp| exp <= chrono::Utc::now()))
+            .count();
         (total, expired)
     }
 }
@@ -519,7 +559,8 @@ pub fn generate_age_keypair() -> SecretsResult<(String, String)> {
 
 /// Encrypt a file using Age.
 pub async fn encrypt_file_age(input: &Path, output: &Path, recipient: &str) -> SecretsResult<()> {
-    let recipient = recipient.parse()
+    let recipient = recipient
+        .parse()
         .map_err(|e| SecretsError::Age(e.to_string()))?;
 
     let input_content = tokio::fs::read(input).await?;
@@ -527,11 +568,13 @@ pub async fn encrypt_file_age(input: &Path, output: &Path, recipient: &str) -> S
     let mut encrypted = Vec::new();
 
     {
-        let mut writer = encryptor.wrap_output(&mut encrypted, age::Format::Binary)
+        let mut writer = encryptor
+            .wrap_output(&mut encrypted, age::Format::Binary)
             .map_err(|e| SecretsError::Age(e.to_string()))?;
         std::io::Write::write_all(&mut writer, &input_content)
             .map_err(|e| SecretsError::Age(e.to_string()))?;
-        writer.finish()
+        writer
+            .finish()
             .map_err(|e| SecretsError::Age(e.to_string()))?;
     }
 
@@ -541,16 +584,18 @@ pub async fn encrypt_file_age(input: &Path, output: &Path, recipient: &str) -> S
 
 /// Decrypt a file using Age.
 pub async fn decrypt_file_age(input: &Path, output: &Path, identity: &str) -> SecretsResult<()> {
-    let identity = identity.parse()
+    let identity = identity
+        .parse()
         .map_err(|e| SecretsError::Age(e.to_string()))?;
 
     let encrypted = tokio::fs::read(input).await?;
-    let decryptor = Decryptor::new(&encrypted[..])
-        .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
+    let decryptor =
+        Decryptor::new(&encrypted[..]).map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
 
     let mut decrypted = Vec::new();
     {
-        let mut reader = decryptor.decrypt(identity)
+        let mut reader = decryptor
+            .decrypt(identity)
             .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
         std::io::Read::read_to_end(&mut reader, &mut decrypted)
             .map_err(|e| SecretsError::AgeDecrypt(e.to_string()))?;
@@ -586,7 +631,10 @@ pub mod cli {
                 let bytes = BASE64.decode(&secret.payload)?;
                 String::from_utf8(bytes).map_err(|e| SecretsError::Utf8(e))
             }
-            _ => Err(SecretsError::Config(format!("Unknown method: {}", secret.method))),
+            _ => Err(SecretsError::Config(format!(
+                "Unknown method: {}",
+                secret.method
+            ))),
         }
     }
 }
@@ -614,7 +662,7 @@ mod tests {
     #[tokio::test]
     async fn test_age_encrypt_decrypt() {
         let (identity_str, recipient_str) = generate_age_keypair().unwrap();
-        
+
         let config = SecretsManagerConfig {
             default_method: "age".to_string(),
             age: Some(AgeConfig {
@@ -628,8 +676,11 @@ mod tests {
         };
 
         let manager = SecretsManager::new(config).await.unwrap();
-        
-        let secret = manager.encrypt_secret("test-key", "super-secret-value").await.unwrap();
+
+        let secret = manager
+            .encrypt_secret("test-key", "super-secret-value")
+            .await
+            .unwrap();
         assert_eq!(secret.method, "age");
         assert!(!secret.is_plaintext());
 
@@ -644,7 +695,7 @@ mod tests {
 
         // Set env var for testing
         std::env::set_var("MEDIAEDGE_SECRET_TEST_KEY", "env-value");
-        
+
         let value = manager.get_secret("test_key").await.unwrap();
         assert_eq!(value, "env-value");
 

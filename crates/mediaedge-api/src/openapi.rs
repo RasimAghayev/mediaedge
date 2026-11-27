@@ -4,15 +4,15 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use utoipa::{
-    openapi::{
-        security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
-        ComponentsBuilder, InfoBuilder, OpenApiBuilder, ServerBuilder,
-    },
     OpenApi, ToSchema,
+    openapi::{
+        ComponentsBuilder, InfoBuilder, OpenApiBuilder, ServerBuilder,
+        security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+    },
 };
-use utoipa_swagger_ui::SwaggerUi;
-use utoipa_redoc::Redoc;
 use utoipa_rapidoc::RapiDoc;
+use utoipa_redoc::Redoc;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::validation::ValidatedJson;
 
@@ -147,11 +147,9 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
                 )
                 .security_scheme(
                     "api_key",
-                    SecurityScheme::ApiKey(
-                        utoipa::openapi::security::ApiKey::Header(
-                            utoipa::openapi::security::ApiKeyValue::new("X-API-Key"),
-                        ),
-                    ),
+                    SecurityScheme::ApiKey(utoipa::openapi::security::ApiKey::Header(
+                        utoipa::openapi::security::ApiKeyValue::new("X-API-Key"),
+                    )),
                 )
                 .build(),
         )
@@ -191,7 +189,8 @@ pub fn create_openapi_router(config: &OpenApiConfig) -> axum::Router {
 
     // Swagger UI
     if config.swagger_ui {
-        router = router.merge(SwaggerUi::new(&config.swagger_path).url("/api/openapi.json", api_doc()));
+        router =
+            router.merge(SwaggerUi::new(&config.swagger_path).url("/api/openapi.json", api_doc()));
     }
 
     // ReDoc

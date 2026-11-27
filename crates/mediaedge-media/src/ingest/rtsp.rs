@@ -20,8 +20,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::fragment::{Fragment, FragmentBroadcasterRegistry, FragmentMeta, StreamId};
-use mediaedge_observability::MetricsRegistry;
-use mediaedge_config::types::RtmpConfig; // Reuse RTMP config structure for RTSP
+use mediaedge_config::types::RtmpConfig;
+use mediaedge_observability::MetricsRegistry; // Reuse RTMP config structure for RTSP
 
 /// RTSP server state.
 struct RtspServerState {
@@ -121,9 +121,10 @@ pub async fn run_rtsp_ingest(
     });
 
     // Generate stream ID
-    let stream_id = config.stream_id.clone().unwrap_or_else(|| {
-        format!("rtsp-{}", uuid::Uuid::new_v4().simple())
-    });
+    let stream_id = config
+        .stream_id
+        .clone()
+        .unwrap_or_else(|| format!("rtsp-{}", uuid::Uuid::new_v4().simple()));
 
     // Start connection loop with reconnect
     let state_clone = state.clone();
@@ -135,8 +136,13 @@ pub async fn run_rtsp_ingest(
         let mut delay = config_clone.reconnect.base_delay;
 
         loop {
-            if attempt >= config_clone.reconnect.max_attempts && config_clone.reconnect.max_attempts > 0 {
-                error!("RTSP max reconnect attempts reached for {}", stream_id_clone);
+            if attempt >= config_clone.reconnect.max_attempts
+                && config_clone.reconnect.max_attempts > 0
+            {
+                error!(
+                    "RTSP max reconnect attempts reached for {}",
+                    stream_id_clone
+                );
                 break;
             }
 
@@ -147,13 +153,13 @@ pub async fn run_rtsp_ingest(
                 }
                 Err(e) => {
                     error!("RTSP connection error for {}: {}", stream_id_clone, e);
-                    
+
                     if !config_clone.reconnect.enabled {
                         break;
                     }
 
                     attempt += 1;
-                    
+
                     // Apply jitter
                     let actual_delay = if config_clone.reconnect.jitter {
                         let jitter = rand::random::<f64>() * 0.2 - 0.1; // ±10%
@@ -162,11 +168,13 @@ pub async fn run_rtsp_ingest(
                         delay
                     };
 
-                    warn!("RTSP reconnecting in {:?} (attempt {}/{})", 
-                        actual_delay, attempt, config_clone.reconnect.max_attempts);
-                    
+                    warn!(
+                        "RTSP reconnecting in {:?} (attempt {}/{})",
+                        actual_delay, attempt, config_clone.reconnect.max_attempts
+                    );
+
                     tokio::time::sleep(actual_delay).await;
-                    
+
                     // Exponential backoff
                     delay = std::cmp::min(delay * 2, config_clone.reconnect.max_delay);
                 }
@@ -184,26 +192,22 @@ async fn connect_and_pull(
     config: &RtspConfig,
 ) -> anyhow::Result<()> {
     let stream_id_obj = StreamId::new(stream_id.to_string());
-    
+
     // Parse RTSP URL
     let url = url::Url::parse(&config.url)?;
-    
+
     // Create RTSP client
     let client_config = ClientConfig::default();
     let mut client = Client::new(client_config);
 
     // Connect
     let session = match config.transport {
-        RtspTransport::Tcp => {
-            client.describe(&url).await?
-        }
+        RtspTransport::Tcp => client.describe(&url).await?,
         RtspTransport::Udp => {
             // UDP transport setup
             client.describe(&url).await?
         }
-        RtspTransport::UdpMulticast => {
-            client.describe(&url).await?
-        }
+        RtspTransport::UdpMulticast => client.describe(&url).await?,
     }?;
 
     // Setup authentication if needed
@@ -215,7 +219,7 @@ async fn connect_and_pull(
     for media in session.medias() {
         let control_url = media.control_url(&url)?;
         let setup_session = client.setup(&control_url, config.transport.into()).await?;
-        
+
         // Play
         client.play(&control_url).await?;
 
@@ -223,9 +227,10 @@ async fn connect_and_pull(
         let state = state.clone();
         let stream_id = stream_id.to_string();
         let transport = config.transport;
-        
+
         tokio::spawn(async move {
-            if let Err(e) = receive_rtp_packets(&state, &stream_id, setup_session, transport).await {
+            if let Err(e) = receive_rtp_packets(&state, &stream_id, setup_session, transport).await
+            {
                 error!("RTSP RTP receive error for {}: {}", stream_id, e);
             }
         });
@@ -235,7 +240,7 @@ async fn connect_and_pull(
     let state = state.clone();
     let stream_id = stream_id.to_string();
     let client = Arc::new(tokio::sync::Mutex::new(client));
-    
+
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
@@ -274,7 +279,7 @@ async fn receive_rtp_packets(
 
     // In a real implementation, this would use the rtsp crate's packet receiver
     // For now, we'll simulate the packet reception loop
-    
+
     // The rtsp crate provides a packet stream
     // let mut packet_stream = session.packets();
     // while let Some(packet) = packet_stream.next().await {
@@ -283,7 +288,7 @@ async fn receive_rtp_packets(
 
     // Placeholder for actual implementation
     tokio::time::sleep(Duration::from_secs(1)).await;
-    
+
     Ok(())
 }
 
@@ -307,18 +312,20 @@ async fn process_rtp_packet(
     state.registry.ingest(stream_id.clone(), fragment);
 
     // Update metrics
-    state.metrics.counter("ingest_rtsp_packets_total", "RTSP packets received").increment(1);
-    state.metrics.counter("ingest_rtsp_bytes_total", "RTSP bytes received").increment(packet.payload.len() as u64);
+    state
+        .metrics
+        .counter("ingest_rtsp_packets_total", "RTSP packets received")
+        .increment(1);
+    state
+        .metrics
+        .counter("ingest_rtsp_bytes_total", "RTSP bytes received")
+        .increment(packet.payload.len() as u64);
 
     Ok(())
 }
 
 /// Convert RTP packet to fragment.
-fn rtsp_packet_to_fragment(
-    stream_id: &StreamId,
-    payload: Bytes,
-    sequence: u64,
-) -> Fragment {
+fn rtsp_packet_to_fragment(stream_id: &StreamId, payload: Bytes, sequence: u64) -> Fragment {
     Fragment {
         meta: FragmentMeta {
             stream_id: stream_id.clone(),
@@ -366,20 +373,22 @@ impl RtspPullClient {
         let url = url::Url::parse(&self.config.url)?;
         let client_config = ClientConfig::default();
         let client = Client::new(client_config);
-        
+
         // Describe
         let session = client.describe(&url).await?;
-        
+
         // Setup each media
         for media in session.medias() {
             let control_url = media.control_url(&url)?;
-            let _setup_session = client.setup(&control_url, self.config.transport.into()).await?;
+            let _setup_session = client
+                .setup(&control_url, self.config.transport.into())
+                .await?;
             client.play(&control_url).await?;
         }
 
         self.client = Some(client);
         info!("RTSP pull client connected to {}", self.config.url);
-        
+
         Ok(())
     }
 
@@ -396,7 +405,7 @@ impl RtspPullClient {
 /// Parse RTSP SDP for stream parameters.
 pub fn parse_rtsp_sdp(sdp: &str) -> anyhow::Result<RtspStreamParams> {
     let mut params = RtspStreamParams::default();
-    
+
     for line in sdp.lines() {
         if line.starts_with("m=video") {
             params.has_video = true;
@@ -417,7 +426,7 @@ pub fn parse_rtsp_sdp(sdp: &str) -> anyhow::Result<RtspStreamParams> {
             // a=fmtp:96 profile-level-id=42e01f;packetization-mode=1
         }
     }
-    
+
     Ok(params)
 }
 
@@ -453,7 +462,7 @@ mod tests {
             max_delay: Duration::from_secs(30),
             jitter: false,
         };
-        
+
         assert_eq!(config.max_attempts, 5);
         assert_eq!(config.base_delay, Duration::from_secs(2));
     }
@@ -463,9 +472,9 @@ mod tests {
         let stream_id = StreamId::new("rtsp-test");
         let payload = Bytes::from(vec![0x00, 0x00, 0x00, 0x01, 0x67]); // H.264 SPS
         let sequence = 1;
-        
+
         let fragment = rtsp_packet_to_fragment(&stream_id, payload.clone(), sequence);
-        
+
         assert_eq!(fragment.meta.stream_id, stream_id);
         assert_eq!(fragment.meta.sequence, sequence);
         assert!(!fragment.meta.is_keyframe); // sequence 1 not keyframe
@@ -483,9 +492,9 @@ a=fmtp:96 profile-level-id=42e01f;packetization-mode=1
 m=audio 0 RTP/AVP 97
 a=rtpmap:97 MPEG4-GENERIC/44100
         "#;
-        
+
         let params = parse_rtsp_sdp(sdp).unwrap();
-        
+
         assert!(params.has_video);
         assert!(params.has_audio);
         assert!(params.codecs.contains_key(&96));
@@ -495,13 +504,13 @@ a=rtpmap:97 MPEG4-GENERIC/44100
     #[test]
     fn test_rtsp_keyframe_detection() {
         let stream_id = StreamId::new("test");
-        
+
         let fragment = rtsp_packet_to_fragment(&stream_id, Bytes::new(), 0);
         assert!(fragment.meta.is_keyframe);
-        
+
         let fragment = rtsp_packet_to_fragment(&stream_id, Bytes::new(), 30);
         assert!(fragment.meta.is_keyframe);
-        
+
         let fragment = rtsp_packet_to_fragment(&stream_id, Bytes::new(), 15);
         assert!(!fragment.meta.is_keyframe);
     }

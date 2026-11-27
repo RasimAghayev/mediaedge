@@ -6,10 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::monetization::{
-    moderation::ModerationService,
-    ssai::SsaiManager,
-};
+use crate::monetization::{moderation::ModerationService, ssai::SsaiManager};
 
 /// Media monetization manager.
 pub struct MonetizationManager {
@@ -39,8 +36,12 @@ impl MonetizationManager {
     }
 
     // Accessors
-    pub fn ssai(&self) -> &Arc<SsaiManager> { &self.ssai }
-    pub fn moderation(&self) -> &Arc<ModerationService> { &self.moderation }
+    pub fn ssai(&self) -> &Arc<SsaiManager> {
+        &self.ssai
+    }
+    pub fn moderation(&self) -> &Arc<ModerationService> {
+        &self.moderation
+    }
 }
 
 impl Default for MonetizationManager {

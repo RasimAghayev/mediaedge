@@ -231,7 +231,9 @@ impl AuditLogger {
             return;
         }
 
-        let batch = events.drain(..events.len().min(config.batch_size)).collect::<Vec<_>>();
+        let batch = events
+            .drain(..events.len().min(config.batch_size))
+            .collect::<Vec<_>>();
 
         // Chain hashes
         let mut prev_hash = last_hash.read().clone();
@@ -276,7 +278,11 @@ impl AuditLogger {
         hasher.update(&event.resource_type.as_deref().unwrap_or("").as_bytes());
         hasher.update(&event.resource_id.map(|u| u.as_bytes()).unwrap_or_default());
         hasher.update(&event.outcome as u8 as &[u8]);
-        hasher.update(serde_json::to_vec(&event.details).unwrap_or_default().as_slice());
+        hasher.update(
+            serde_json::to_vec(&event.details)
+                .unwrap_or_default()
+                .as_slice(),
+        );
         hasher.update(&event.ip_address.as_deref().unwrap_or("").as_bytes());
         hasher.update(&event.user_agent.as_deref().unwrap_or("").as_bytes());
         hasher.update(&event.request_id.as_deref().unwrap_or("").as_bytes());
@@ -336,7 +342,10 @@ impl AuditLogger {
             .await?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!("External sink returned {}", response.status()));
+            return Err(anyhow::anyhow!(
+                "External sink returned {}",
+                response.status()
+            ));
         }
 
         Ok(())
@@ -365,7 +374,7 @@ impl AuditLogger {
                    user_agent, request_id, session_id, previous_hash, hash
             FROM audit_events
             WHERE 1=1
-            "#
+            "#,
         );
 
         let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Postgres> + Send + Sync>> = Vec::new();
@@ -457,65 +466,70 @@ impl AuditLogger {
 
         // Note: In real implementation, use sqlx::query_as with proper parameter binding
         // This is simplified for demonstration
-        let rows = sqlx::query(&sql)
-            .fetch_all(&self.config.pool)
-            .await?;
+        let rows = sqlx::query(&sql).fetch_all(&self.config.pool).await?;
 
-        Ok(rows.into_iter().map(|row| AuditEvent {
-            id: row.get("id"),
-            timestamp: row.get("timestamp"),
-            tenant_id: row.get("tenant_id"),
-            user_id: row.get("user_id"),
-            api_key_id: row.get("api_key_id"),
-            category: match row.get::<i16, _>("category") {
-                0 => AuditCategory::Authentication,
-                1 => AuditCategory::Authorization,
-                2 => AuditCategory::TenantManagement,
-                3 => AuditCategory::UserManagement,
-                4 => AuditCategory::RoleManagement,
-                5 => AuditCategory::ApiKeyManagement,
-                6 => AuditCategory::SecretManagement,
-                7 => AuditCategory::StreamManagement,
-                8 => AuditCategory::RecordingManagement,
-                9 => AuditCategory::ConfigurationChange,
-                10 => AuditCategory::SecurityEvent,
-                11 => AuditCategory::DataAccess,
-                _ => AuditCategory::SystemEvent,
-            },
-            severity: match row.get::<i16, _>("severity") {
-                0 => AuditSeverity::Debug,
-                1 => AuditSeverity::Info,
-                2 => AuditSeverity::Warning,
-                3 => AuditSeverity::Error,
-                _ => AuditSeverity::Critical,
-            },
-            action: row.get("action"),
-            resource_type: row.get("resource_type"),
-            resource_id: row.get("resource_id"),
-            outcome: match row.get::<i16, _>("outcome") {
-                0 => AuditOutcome::Success,
-                1 => AuditOutcome::Failure,
-                2 => AuditOutcome::Partial,
-                _ => AuditOutcome::Denied,
-            },
-            details: row.get("details"),
-            ip_address: row.get("ip_address"),
-            user_agent: row.get("user_agent"),
-            request_id: row.get("request_id"),
-            session_id: row.get("session_id"),
-            previous_hash: row.get("previous_hash"),
-            hash: row.get("hash"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| AuditEvent {
+                id: row.get("id"),
+                timestamp: row.get("timestamp"),
+                tenant_id: row.get("tenant_id"),
+                user_id: row.get("user_id"),
+                api_key_id: row.get("api_key_id"),
+                category: match row.get::<i16, _>("category") {
+                    0 => AuditCategory::Authentication,
+                    1 => AuditCategory::Authorization,
+                    2 => AuditCategory::TenantManagement,
+                    3 => AuditCategory::UserManagement,
+                    4 => AuditCategory::RoleManagement,
+                    5 => AuditCategory::ApiKeyManagement,
+                    6 => AuditCategory::SecretManagement,
+                    7 => AuditCategory::StreamManagement,
+                    8 => AuditCategory::RecordingManagement,
+                    9 => AuditCategory::ConfigurationChange,
+                    10 => AuditCategory::SecurityEvent,
+                    11 => AuditCategory::DataAccess,
+                    _ => AuditCategory::SystemEvent,
+                },
+                severity: match row.get::<i16, _>("severity") {
+                    0 => AuditSeverity::Debug,
+                    1 => AuditSeverity::Info,
+                    2 => AuditSeverity::Warning,
+                    3 => AuditSeverity::Error,
+                    _ => AuditSeverity::Critical,
+                },
+                action: row.get("action"),
+                resource_type: row.get("resource_type"),
+                resource_id: row.get("resource_id"),
+                outcome: match row.get::<i16, _>("outcome") {
+                    0 => AuditOutcome::Success,
+                    1 => AuditOutcome::Failure,
+                    2 => AuditOutcome::Partial,
+                    _ => AuditOutcome::Denied,
+                },
+                details: row.get("details"),
+                ip_address: row.get("ip_address"),
+                user_agent: row.get("user_agent"),
+                request_id: row.get("request_id"),
+                session_id: row.get("session_id"),
+                previous_hash: row.get("previous_hash"),
+                hash: row.get("hash"),
+            })
+            .collect())
     }
 
     /// Verify audit log integrity (check hash chain).
-    pub async fn verify_integrity(&self, start_id: Option<Uuid>, end_id: Option<Uuid>) -> Result<IntegrityReport> {
+    pub async fn verify_integrity(
+        &self,
+        start_id: Option<Uuid>,
+        end_id: Option<Uuid>,
+    ) -> Result<IntegrityReport> {
         let mut query = String::from(
             r#"
             SELECT id, timestamp, previous_hash, hash
             FROM audit_events
             WHERE 1=1
-            "#
+            "#,
         );
 
         if let Some(start) = start_id {

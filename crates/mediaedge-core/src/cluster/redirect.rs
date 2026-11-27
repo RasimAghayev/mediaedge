@@ -6,11 +6,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
+    Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
     routing::get,
-    Router,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -80,8 +80,14 @@ impl RedirectManager {
     ) -> Router {
         Router::new()
             .route("/redirect/:key", get(Self::handle_redirect))
-            .route("/redirect/hls/:stream_id/*path", get(Self::handle_hls_redirect))
-            .route("/redirect/dash/:stream_id/*path", get(Self::handle_dash_redirect))
+            .route(
+                "/redirect/hls/:stream_id/*path",
+                get(Self::handle_hls_redirect),
+            )
+            .route(
+                "/redirect/dash/:stream_id/*path",
+                get(Self::handle_dash_redirect),
+            )
             .route("/redirect/rtsp/:stream_id", get(Self::handle_rtsp_redirect))
             .with_state(RedirectState {
                 config,
@@ -123,7 +129,8 @@ impl RedirectManager {
         }
 
         // Check redirect hop count
-        let hop_count = headers.get("x-redirect-hop")
+        let hop_count = headers
+            .get("x-redirect-hop")
             .and_then(|h| h.to_str().ok())
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
@@ -149,9 +156,7 @@ impl RedirectManager {
         };
 
         // Get node address
-        let target_url = state.node_addresses.read()
-            .get(&owner.0)
-            .cloned();
+        let target_url = state.node_addresses.read().get(&owner.0).cloned();
 
         let target_url = match target_url {
             Some(url) => url,
@@ -162,10 +167,12 @@ impl RedirectManager {
         };
 
         // Build redirect URL
-        let mut redirect_url = format!("{}{}{}", target_url, state.config.redirect_path_prefix, key);
-        
+        let mut redirect_url =
+            format!("{}{}{}", target_url, state.config.redirect_path_prefix, key);
+
         if state.config.preserve_query_params && !params.is_empty() {
-            let query = params.iter()
+            let query = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -179,8 +186,16 @@ impl RedirectManager {
             (hop_count + 1).to_string().parse().unwrap(),
         );
 
-        state.metrics.counter("redirect_total", "Total redirects").increment(1);
-        info!("Redirecting {} to {} (hop {})", key, redirect_url, hop_count + 1);
+        state
+            .metrics
+            .counter("redirect_total", "Total redirects")
+            .increment(1);
+        info!(
+            "Redirecting {} to {} (hop {})",
+            key,
+            redirect_url,
+            hop_count + 1
+        );
 
         response
     }
@@ -195,7 +210,7 @@ impl RedirectManager {
     ) -> Response {
         let key = format!("broadcast:{}", stream_id);
         let new_path = format!("/hls/{}/{}", stream_id, path);
-        
+
         Self::do_redirect(state, &key, &new_path, params, headers).await
     }
 
@@ -209,7 +224,7 @@ impl RedirectManager {
     ) -> Response {
         let key = format!("broadcast:{}", stream_id);
         let new_path = format!("/dash/{}/{}", stream_id, path);
-        
+
         Self::do_redirect(state, &key, &new_path, params, headers).await
     }
 
@@ -222,7 +237,7 @@ impl RedirectManager {
     ) -> Response {
         let key = format!("broadcast:{}", stream_id);
         let new_path = format!("/rtsp/{}", stream_id);
-        
+
         Self::do_redirect(state, &key, &new_path, params, headers).await
     }
 
@@ -238,7 +253,8 @@ impl RedirectManager {
             return (StatusCode::NOT_FOUND, "Redirect disabled").into_response();
         }
 
-        let hop_count = headers.get("x-redirect-hop")
+        let hop_count = headers
+            .get("x-redirect-hop")
             .and_then(|h| h.to_str().ok())
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
@@ -258,7 +274,9 @@ impl RedirectManager {
             None => return (StatusCode::NOT_FOUND, "No owner found").into_response(),
         };
 
-        let target_url = state.node_addresses.read()
+        let target_url = state
+            .node_addresses
+            .read()
             .get(&owner.0)
             .cloned()
             .unwrap_or_else(|| {
@@ -271,9 +289,10 @@ impl RedirectManager {
         }
 
         let mut redirect_url = format!("{}{}", target_url, path);
-        
+
         if state.config.preserve_query_params && !params.is_empty() {
-            let query = params.iter()
+            let query = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join("&");
@@ -286,7 +305,10 @@ impl RedirectManager {
             (hop_count + 1).to_string().parse().unwrap(),
         );
 
-        state.metrics.counter("redirect_total", "Total redirects").increment(1);
+        state
+            .metrics
+            .counter("redirect_total", "Total redirects")
+            .increment(1);
         debug!("Redirecting {} to {}", key, redirect_url);
 
         response

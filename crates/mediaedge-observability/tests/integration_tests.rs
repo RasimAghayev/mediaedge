@@ -1,18 +1,19 @@
 //! Integration tests for mediaedge-observability.
 
-use mediaedge_observability::{
-    ObservabilityConfig, MetricsRegistry, SloTracker, LogBuffer,
-    init_observability, init_logging, live_tail_routes, slo_routes,
-    types::{LoggingConfig, SloConfig, MetricsConfig, TracingConfig},
-    prelude::*,
-};
 use axum::{
-    body::Body,
-    http::{Request, StatusCode, HeaderMap, HeaderValue},
-    routing::get,
     Router,
+    body::Body,
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
+    routing::get,
 };
 use futures::StreamExt;
+use mediaedge_observability::{
+    LogBuffer, MetricsRegistry, ObservabilityConfig, SloTracker, init_logging, init_observability,
+    live_tail_routes,
+    prelude::*,
+    slo_routes,
+    types::{LoggingConfig, MetricsConfig, SloConfig, TracingConfig},
+};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,11 +44,11 @@ fn create_test_obs_config() -> ObservabilityConfig {
 async fn test_observability_init() {
     let config = create_test_obs_config();
     let handles = init_observability(&config).unwrap();
-    
+
     // Verify components are initialized
     assert!(handles.log_buffer.size() == 0);
     assert!(!handles.metrics_registry.metric_names().is_empty());
-    
+
     let slo_report = handles.slo_tracker.get_status();
     assert!(slo_report.transports.contains_key("hls"));
     assert!(slo_report.transports.contains_key("moq"));
@@ -61,7 +62,7 @@ async fn test_metrics_registry() {
     // Test counter
     let counter = registry.counter("test_counter", "Test counter");
     counter.increment(5);
-    
+
     // Test gauge
     let gauge = registry.gauge("test_gauge", "Test gauge");
     gauge.set(42.0);
@@ -76,7 +77,7 @@ async fn test_metrics_registry() {
     // Test SLO histograms
     let hls_hist = registry.slo_histogram("hls");
     assert!(hls_hist.is_some());
-    
+
     let moq_hist = registry.slo_histogram("moq");
     assert!(moq_hist.is_some());
 
@@ -194,7 +195,7 @@ async fn test_client_samples() {
     };
 
     tracker.record_client_sample(&sample.transport, sample.latency);
-    
+
     let client_hist = tracker.get_client_histogram("whep");
     assert!(client_hist.is_some());
     assert_eq!(client_hist.unwrap().len(), 1);
@@ -203,7 +204,7 @@ async fn test_client_samples() {
 #[tokio::test]
 async fn test_log_buffer() {
     let buffer = LogBuffer::new(100);
-    
+
     let entry = mediaedge_observability::logging::LogEntry {
         timestamp: chrono::Utc::now(),
         level: "info".to_string(),
@@ -212,10 +213,10 @@ async fn test_log_buffer() {
         span_context: None,
         fields: json!({}),
     };
-    
+
     buffer.push(entry.clone());
     assert_eq!(buffer.size(), 1);
-    
+
     let recent = buffer.recent(10);
     assert_eq!(recent.len(), 1);
 }
@@ -224,9 +225,9 @@ async fn test_log_buffer() {
 async fn test_live_tail_sse() {
     let config = create_test_obs_config();
     let buffer = Arc::new(LogBuffer::new(config.logging.tail_buffer_size));
-    
+
     let app = live_tail_routes(buffer.clone(), &config.logging);
-    
+
     // Add some log entries
     for i in 0..5 {
         buffer.push(mediaedge_observability::logging::LogEntry {
@@ -252,7 +253,7 @@ async fn test_live_tail_sse() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Check content type is SSE
     let content_type = response.headers().get("content-type").unwrap();
     assert!(content_type.to_str().unwrap().contains("text/event-stream"));
@@ -262,9 +263,9 @@ async fn test_live_tail_sse() {
 async fn test_recent_logs_endpoint() {
     let config = create_test_obs_config();
     let buffer = Arc::new(LogBuffer::new(config.logging.tail_buffer_size));
-    
+
     let app = live_tail_routes(buffer.clone(), &config.logging);
-    
+
     // Add some log entries
     for i in 0..5 {
         buffer.push(mediaedge_observability::logging::LogEntry {
@@ -289,9 +290,12 @@ async fn test_recent_logs_endpoint() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let logs: Vec<mediaedge_observability::logging::LogEntry> = serde_json::from_slice(&body).unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let logs: Vec<mediaedge_observability::logging::LogEntry> =
+        serde_json::from_slice(&body).unwrap();
     assert_eq!(logs.len(), 3);
 }
 
@@ -299,7 +303,7 @@ async fn test_recent_logs_endpoint() {
 async fn test_slo_endpoints() {
     let config = create_test_obs_config();
     let tracker = Arc::new(SloTracker::new(config.slo.clone()));
-    
+
     // Record some latencies
     for _ in 0..50 {
         tracker.record_latency("hls", Duration::from_millis(500));
@@ -321,9 +325,12 @@ async fn test_slo_endpoints() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let report: mediaedge_observability::slo::SloStatusReport = serde_json::from_slice(&body).unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let report: mediaedge_observability::slo::SloStatusReport =
+        serde_json::from_slice(&body).unwrap();
     assert!(report.transports.contains_key("hls"));
     assert!(report.transports.contains_key("moq"));
 
@@ -341,9 +348,12 @@ async fn test_slo_endpoints() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let status: mediaedge_observability::slo::TransportSloStatus = serde_json::from_slice(&body).unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let status: mediaedge_observability::slo::TransportSloStatus =
+        serde_json::from_slice(&body).unwrap();
     assert_eq!(status.transport, "hls");
 }
 
@@ -351,7 +361,7 @@ async fn test_slo_endpoints() {
 async fn test_client_sample_endpoint() {
     let config = create_test_obs_config();
     let tracker = Arc::new(SloTracker::new(config.slo.clone()));
-    
+
     let app = slo_routes(tracker.clone());
 
     let sample = json!({
@@ -384,9 +394,12 @@ async fn test_client_sample_endpoint() {
 async fn test_prometheus_metrics_endpoint() {
     let config = create_test_obs_config();
     let handles = init_observability(&config).unwrap();
-    
+
     let app = Router::new()
-        .route(&config.metrics.path, get(mediaedge_observability::metrics_handler))
+        .route(
+            &config.metrics.path,
+            get(mediaedge_observability::metrics_handler),
+        )
         .with_state(handles.metrics_registry.clone());
 
     let response = app
@@ -401,8 +414,10 @@ async fn test_prometheus_metrics_endpoint() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let output = String::from_utf8(body.to_vec()).unwrap();
     assert!(output.contains("mediaedge_"));
 }
@@ -410,7 +425,7 @@ async fn test_prometheus_metrics_endpoint() {
 #[tokio::test]
 async fn test_log_filtering() {
     let buffer = Arc::new(LogBuffer::new(100));
-    
+
     // Add entries with different levels
     buffer.push(mediaedge_observability::logging::LogEntry {
         timestamp: chrono::Utc::now(),
@@ -458,7 +473,7 @@ async fn test_log_filtering() {
 async fn test_metrics_middleware() {
     let config = create_test_obs_config();
     let handles = init_observability(&config).unwrap();
-    
+
     let app = Router::new()
         .route("/test", get(|| async { "ok" }))
         .layer(axum::middleware::from_fn_with_state(
@@ -479,7 +494,7 @@ async fn test_metrics_middleware() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Check metrics were recorded
     let output = handles.metrics_registry.render_prometheus();
     assert!(output.contains("mediaedge_http_requests_total"));

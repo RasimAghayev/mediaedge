@@ -127,21 +127,55 @@ impl Permission {
     pub fn all() -> HashSet<Self> {
         let mut set = HashSet::new();
         set.extend([
-            Self::StreamCreate, Self::StreamRead, Self::StreamUpdate, Self::StreamDelete,
-            Self::StreamStart, Self::StreamStop, Self::StreamMetrics,
-            Self::RecordingCreate, Self::RecordingRead, Self::RecordingDelete, Self::RecordingExport,
-            Self::VodCreate, Self::VodRead, Self::VodUpdate, Self::VodDelete, Self::VodPublish,
-            Self::TranscodeCreate, Self::TranscodeRead, Self::TranscodeCancel,
-            Self::ClusterRead, Self::ClusterManage,
-            Self::TenantRead, Self::TenantUpdate, Self::TenantManageUsers, Self::TenantManageRoles,
-            Self::TenantManageQuotas, Self::TenantManageBilling, Self::TenantManageSettings,
-            Self::UserCreate, Self::UserRead, Self::UserUpdate, Self::UserDelete, Self::UserManageMfa,
-            Self::ApiKeyCreate, Self::ApiKeyRead, Self::ApiKeyRevoke,
+            Self::StreamCreate,
+            Self::StreamRead,
+            Self::StreamUpdate,
+            Self::StreamDelete,
+            Self::StreamStart,
+            Self::StreamStop,
+            Self::StreamMetrics,
+            Self::RecordingCreate,
+            Self::RecordingRead,
+            Self::RecordingDelete,
+            Self::RecordingExport,
+            Self::VodCreate,
+            Self::VodRead,
+            Self::VodUpdate,
+            Self::VodDelete,
+            Self::VodPublish,
+            Self::TranscodeCreate,
+            Self::TranscodeRead,
+            Self::TranscodeCancel,
+            Self::ClusterRead,
+            Self::ClusterManage,
+            Self::TenantRead,
+            Self::TenantUpdate,
+            Self::TenantManageUsers,
+            Self::TenantManageRoles,
+            Self::TenantManageQuotas,
+            Self::TenantManageBilling,
+            Self::TenantManageSettings,
+            Self::UserCreate,
+            Self::UserRead,
+            Self::UserUpdate,
+            Self::UserDelete,
+            Self::UserManageMfa,
+            Self::ApiKeyCreate,
+            Self::ApiKeyRead,
+            Self::ApiKeyRevoke,
             Self::AuditRead,
-            Self::MetricsRead, Self::LogsRead, Self::AlertsManage,
-            Self::FastChannelCreate, Self::FastChannelRead, Self::FastChannelUpdate, Self::FastChannelDelete, Self::FastChannelSchedule,
-            Self::MonetizationRead, Self::MonetizationManage,
-            Self::AiSchedulingRead, Self::AiSchedulingManage,
+            Self::MetricsRead,
+            Self::LogsRead,
+            Self::AlertsManage,
+            Self::FastChannelCreate,
+            Self::FastChannelRead,
+            Self::FastChannelUpdate,
+            Self::FastChannelDelete,
+            Self::FastChannelSchedule,
+            Self::MonetizationRead,
+            Self::MonetizationManage,
+            Self::AiSchedulingRead,
+            Self::AiSchedulingManage,
         ]);
         set
     }
@@ -150,17 +184,33 @@ impl Permission {
     pub fn operator_set() -> HashSet<Self> {
         let mut set = HashSet::new();
         set.extend([
-            Self::StreamCreate, Self::StreamRead, Self::StreamUpdate, Self::StreamDelete,
-            Self::StreamStart, Self::StreamStop, Self::StreamMetrics,
-            Self::RecordingCreate, Self::RecordingRead, Self::RecordingExport,
-            Self::VodCreate, Self::VodRead, Self::VodUpdate, Self::VodPublish,
-            Self::TranscodeCreate, Self::TranscodeRead, Self::TranscodeCancel,
+            Self::StreamCreate,
+            Self::StreamRead,
+            Self::StreamUpdate,
+            Self::StreamDelete,
+            Self::StreamStart,
+            Self::StreamStop,
+            Self::StreamMetrics,
+            Self::RecordingCreate,
+            Self::RecordingRead,
+            Self::RecordingExport,
+            Self::VodCreate,
+            Self::VodRead,
+            Self::VodUpdate,
+            Self::VodPublish,
+            Self::TranscodeCreate,
+            Self::TranscodeRead,
+            Self::TranscodeCancel,
             Self::ClusterRead,
             Self::TenantRead,
             Self::UserRead,
             Self::ApiKeyRead,
-            Self::MetricsRead, Self::LogsRead,
-            Self::FastChannelCreate, Self::FastChannelRead, Self::FastChannelUpdate, Self::FastChannelSchedule,
+            Self::MetricsRead,
+            Self::LogsRead,
+            Self::FastChannelCreate,
+            Self::FastChannelRead,
+            Self::FastChannelUpdate,
+            Self::FastChannelSchedule,
             Self::MonetizationRead,
             Self::AiSchedulingRead,
         ]);
@@ -171,7 +221,8 @@ impl Permission {
     pub fn viewer_set() -> HashSet<Self> {
         let mut set = HashSet::new();
         set.extend([
-            Self::StreamRead, Self::StreamMetrics,
+            Self::StreamRead,
+            Self::StreamMetrics,
             Self::RecordingRead,
             Self::VodRead,
             Self::TranscodeRead,
@@ -190,11 +241,18 @@ impl Permission {
     pub fn api_client_set() -> HashSet<Self> {
         let mut set = HashSet::new();
         set.extend([
-            Self::StreamCreate, Self::StreamRead, Self::StreamUpdate,
-            Self::StreamStart, Self::StreamStop,
-            Self::RecordingCreate, Self::RecordingRead,
-            Self::VodCreate, Self::VodRead, Self::VodPublish,
-            Self::TranscodeCreate, Self::TranscodeRead,
+            Self::StreamCreate,
+            Self::StreamRead,
+            Self::StreamUpdate,
+            Self::StreamStart,
+            Self::StreamStop,
+            Self::RecordingCreate,
+            Self::RecordingRead,
+            Self::VodCreate,
+            Self::VodRead,
+            Self::VodPublish,
+            Self::TranscodeCreate,
+            Self::TranscodeRead,
             Self::MetricsRead,
         ]);
         set
@@ -256,7 +314,7 @@ pub struct ApiKey {
 pub struct RbacManager {
     tenant_mgr: Arc<TenantManager>,
     role_cache: Arc<DashMap<Uuid, HashMap<Uuid, Vec<RoleAssignment>>>>, // tenant_id -> user_id -> roles
-    permission_cache: Arc<DashMap<String, HashSet<Permission>>>, // cache_key -> permissions
+    permission_cache: Arc<DashMap<String, HashSet<Permission>>>,        // cache_key -> permissions
 }
 
 impl RbacManager {
@@ -313,7 +371,9 @@ impl RbacManager {
         assignment: RoleAssignment,
     ) -> Result<()> {
         // Validate tenant exists
-        self.tenant_mgr.get_tenant(tenant_id).await?
+        self.tenant_mgr
+            .get_tenant(tenant_id)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Tenant not found"))?;
 
         // Store in database
@@ -414,17 +474,24 @@ impl RbacManager {
         .fetch_all(&self.tenant_mgr.config.pool)
         .await?;
 
-        let roles: Vec<RoleAssignment> = rows.into_iter().map(|row| RoleAssignment {
-            role: serde_json::from_value(serde_json::to_value(row.role)?).unwrap_or(Role::Custom),
-            resource_type: row.resource_type,
-            resource_id: row.resource_id,
-            granted_by: row.granted_by,
-            granted_at: row.granted_at,
-            expires_at: row.expires_at,
-        }).collect();
+        let roles: Vec<RoleAssignment> = rows
+            .into_iter()
+            .map(|row| RoleAssignment {
+                role: serde_json::from_value(serde_json::to_value(row.role)?)
+                    .unwrap_or(Role::Custom),
+                resource_type: row.resource_type,
+                resource_id: row.resource_id,
+                granted_by: row.granted_by,
+                granted_at: row.granted_at,
+                expires_at: row.expires_at,
+            })
+            .collect();
 
         // Cache
-        self.role_cache.entry(tenant_id).or_default().insert(user_id, roles.clone());
+        self.role_cache
+            .entry(tenant_id)
+            .or_default()
+            .insert(user_id, roles.clone());
 
         // Build permission cache
         let mut permissions = HashSet::new();
@@ -437,7 +504,11 @@ impl RbacManager {
     }
 
     /// Get API key roles.
-    async fn get_api_key_roles(&self, tenant_id: Uuid, api_key_id: Uuid) -> Result<Vec<RoleAssignment>> {
+    async fn get_api_key_roles(
+        &self,
+        tenant_id: Uuid,
+        api_key_id: Uuid,
+    ) -> Result<Vec<RoleAssignment>> {
         let rows = sqlx::query!(
             r#"
             SELECT role, resource_type, resource_id, granted_by, granted_at, expires_at
@@ -451,14 +522,18 @@ impl RbacManager {
         .fetch_all(&self.tenant_mgr.config.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|row| RoleAssignment {
-            role: serde_json::from_value(serde_json::to_value(row.role)?).unwrap_or(Role::Custom),
-            resource_type: row.resource_type,
-            resource_id: row.resource_id,
-            granted_by: row.granted_by,
-            granted_at: row.granted_at,
-            expires_at: row.expires_at,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| RoleAssignment {
+                role: serde_json::from_value(serde_json::to_value(row.role)?)
+                    .unwrap_or(Role::Custom),
+                resource_type: row.resource_type,
+                resource_id: row.resource_id,
+                granted_by: row.granted_by,
+                granted_at: row.granted_at,
+                expires_at: row.expires_at,
+            })
+            .collect())
     }
 }
 

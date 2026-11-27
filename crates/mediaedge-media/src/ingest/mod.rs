@@ -1,10 +1,10 @@
 //! Ingest module - unified entry point for all ingest protocols.
 
-pub mod rtmp;
-pub mod srt;
 pub mod rist;
-pub mod whip;
+pub mod rtmp;
 pub mod rtsp;
+pub mod srt;
+pub mod whip;
 
 use std::sync::Arc;
 
@@ -155,7 +155,12 @@ impl IngestManager {
     }
 
     /// Register a new ingest stream.
-    pub fn register_stream(&self, stream_id: String, protocol: IngestProtocol, peer_addr: Option<String>) {
+    pub fn register_stream(
+        &self,
+        stream_id: String,
+        protocol: IngestProtocol,
+        peer_addr: Option<String>,
+    ) {
         let info = IngestStreamInfo {
             stream_id: stream_id.clone(),
             protocol,
@@ -169,7 +174,9 @@ impl IngestManager {
             resolution: None,
         };
         self.active_streams.insert(stream_id, info);
-        self.metrics.counter("ingest_streams_total", "Total ingest streams").increment(1);
+        self.metrics
+            .counter("ingest_streams_total", "Total ingest streams")
+            .increment(1);
     }
 
     /// Update stream status.
@@ -190,7 +197,9 @@ impl IngestManager {
     /// Remove a stream.
     pub fn remove_stream(&self, stream_id: &str) {
         self.active_streams.remove(stream_id);
-        self.metrics.counter("ingest_active_streams", "Active ingest streams").decrement(1);
+        self.metrics
+            .counter("ingest_active_streams", "Active ingest streams")
+            .decrement(1);
     }
 
     /// Get stream info.
@@ -234,17 +243,28 @@ mod tests {
     #[test]
     fn test_ingest_manager() {
         let registry = Arc::new(crate::fragment::FragmentBroadcasterRegistry::new());
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let manager = IngestManager::new(registry, metrics);
 
-        manager.register_stream("test-stream".to_string(), IngestProtocol::Rtmp, Some("192.168.1.1:1234".to_string()));
-        
+        manager.register_stream(
+            "test-stream".to_string(),
+            IngestProtocol::Rtmp,
+            Some("192.168.1.1:1234".to_string()),
+        );
+
         assert_eq!(manager.stream_count(), 1);
-        assert_eq!(manager.get_stream("test-stream").unwrap().protocol, IngestProtocol::Rtmp);
-        
+        assert_eq!(
+            manager.get_stream("test-stream").unwrap().protocol,
+            IngestProtocol::Rtmp
+        );
+
         manager.update_status("test-stream", IngestStatus::Streaming);
-        assert_eq!(manager.get_stream("test-stream").unwrap().status, IngestStatus::Streaming);
-        
+        assert_eq!(
+            manager.get_stream("test-stream").unwrap().status,
+            IngestStatus::Streaming
+        );
+
         manager.remove_stream("test-stream");
         assert_eq!(manager.stream_count(), 0);
     }

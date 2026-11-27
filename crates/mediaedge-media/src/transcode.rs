@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dashmap::DashMap;
-use ffmpeg_next::{self as ffmpeg, format, codec, Dictionary, Rational};
-use tokio::sync::{mpsc, Semaphore};
+use ffmpeg_next::{self as ffmpeg, Dictionary, Rational, codec, format};
+use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -201,7 +201,7 @@ impl TranscodePipeline {
     ) -> Self {
         let (job_tx, job_rx) = mpsc::channel(1000);
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_jobs));
-        
+
         let pipeline = Self {
             config,
             registry,
@@ -226,7 +226,8 @@ impl TranscodePipeline {
             let registry = self.registry.clone();
 
             let handle = tokio::spawn(async move {
-                Self::worker_loop(i, job_rx, active_jobs, metrics, semaphore, config, registry).await;
+                Self::worker_loop(i, job_rx, active_jobs, metrics, semaphore, config, registry)
+                    .await;
             });
 
             self.worker_handles.push(handle);
@@ -266,9 +267,13 @@ impl TranscodePipeline {
             // Process the job
             if let Err(e) = Self::process_job(&job, &registry, &metrics, &config).await {
                 error!("Transcode job {} failed: {}", job.job_id, e);
-                metrics.counter("transcode_jobs_failed_total", "Failed transcode jobs").increment(1);
+                metrics
+                    .counter("transcode_jobs_failed_total", "Failed transcode jobs")
+                    .increment(1);
             } else {
-                metrics.counter("transcode_jobs_completed_total", "Completed transcode jobs").increment(1);
+                metrics
+                    .counter("transcode_jobs_completed_total", "Completed transcode jobs")
+                    .increment(1);
             }
 
             active_jobs.remove(&job.job_id);
@@ -296,15 +301,16 @@ impl TranscodePipeline {
         metrics: &Arc<MetricsRegistry>,
     ) -> anyhow::Result<()> {
         // Subscribe to live stream fragments
-        let mut subscriber = registry.subscribe(job.stream_id.clone())
+        let mut subscriber = registry
+            .subscribe(job.stream_id.clone())
             .ok_or_else(|| anyhow::anyhow!("Stream not found"))?;
 
         // Start FFmpeg processes for each output profile
         for profile in &job.output_config.outputs {
             let mut cmd = Self::build_ffmpeg_command_live(job, profile)?;
-            
+
             let mut child = cmd.spawn()?;
-            
+
             // Monitor process
             tokio::spawn(async move {
                 let _ = child.wait().await;
@@ -329,7 +335,7 @@ impl TranscodePipeline {
         // Process file-based transcoding
         for profile in &job.output_config.outputs {
             let mut cmd = Self::build_ffmpeg_command_vod(job, profile, config)?;
-            
+
             let start = Instant::now();
             let output = cmd.output().await?;
             let duration = start.elapsed();
@@ -340,7 +346,8 @@ impl TranscodePipeline {
                 return Err(anyhow::anyhow!("FFmpeg failed: {}", stderr));
             }
 
-            metrics.histogram("transcode_duration_seconds", "Transcode duration")
+            metrics
+                .histogram("transcode_duration_seconds", "Transcode duration")
                 .record(duration.as_secs_f64());
         }
 
@@ -363,19 +370,17 @@ impl TranscodePipeline {
         profile: &OutputProfile,
     ) -> anyhow::Result<tokio::process::Command> {
         let mut cmd = tokio::process::Command::new("ffmpeg");
-        
+
         // Global options
         cmd.args(&[
             "-y", // Overwrite output
             "-hide_banner",
-            "-loglevel", "warning",
+            "-loglevel",
+            "warning",
         ]);
 
         // Input from stdin (fragments)
-        cmd.args(&[
-            "-f", "mpegts",
-            "-i", "pipe:0",
-        ]);
+        cmd.args(&["-f", "mpegts", "-i", "pipe:0"]);
 
         // Video encoding
         if let Some(video) = &profile.video {
@@ -400,12 +405,14 @@ impl TranscodePipeline {
         config: &TranscodeConfig,
     ) -> anyhow::Result<tokio::process::Command> {
         let mut cmd = tokio::process::Command::new("ffmpeg");
-        
+
         cmd.args(&[
             "-y",
             "-hide_banner",
-            "-loglevel", "warning",
-            "-i", &job.input_url,
+            "-loglevel",
+            "warning",
+            "-i",
+            &job.input_url,
         ]);
 
         // Hardware acceleration
@@ -426,7 +433,10 @@ impl TranscodePipeline {
     }
 
     /// Add hardware acceleration arguments.
-    fn add_hwaccel_args(cmd: &mut tokio::process::Command, hw: &HwAccelConfig) -> anyhow::Result<()> {
+    fn add_hwaccel_args(
+        cmd: &mut tokio::process::Command,
+        hw: &HwAccelConfig,
+    ) -> anyhow::Result<()> {
         match hw.device {
             HwDevice::Vaapi => {
                 cmd.args(&["-hwaccel", "vaapi"]);
@@ -466,7 +476,10 @@ impl TranscodePipeline {
     }
 
     /// Add video encoding arguments.
-    fn add_video_encoding_args(cmd: &mut tokio::process::Command, video: &VideoEncodingParams) -> anyhow::Result<()> {
+    fn add_video_encoding_args(
+        cmd: &mut tokio::process::Command,
+        video: &VideoEncodingParams,
+    ) -> anyhow::Result<()> {
         let codec_str = match video.codec {
             VideoCodec::H264 => "h264",
             VideoCodec::Hevc => "hevc",
@@ -500,18 +513,34 @@ impl TranscodePipeline {
         };
 
         cmd.args(&[
-            "-c:v", encoder,
-            "-b:v", &video.bitrate_bps.to_string(),
-            "-maxrate", &video.max_bitrate_bps.to_string(),
-            "-bufsize", &video.bufsize_bps.to_string(),
-            "-r", &format!("{}/{}", video.framerate.numerator(), video.framerate.denominator()),
-            "-g", &video.gop_size.to_string(),
-            "-keyint_min", &video.gop_size.to_string(),
-            "-sc_threshold", "0",
-            "-profile:v", &video.profile,
-            "-level:v", &video.level,
-            "-preset", &video.preset,
-            "-s", &format!("{}x{}", video.width, video.height),
+            "-c:v",
+            encoder,
+            "-b:v",
+            &video.bitrate_bps.to_string(),
+            "-maxrate",
+            &video.max_bitrate_bps.to_string(),
+            "-bufsize",
+            &video.bufsize_bps.to_string(),
+            "-r",
+            &format!(
+                "{}/{}",
+                video.framerate.numerator(),
+                video.framerate.denominator()
+            ),
+            "-g",
+            &video.gop_size.to_string(),
+            "-keyint_min",
+            &video.gop_size.to_string(),
+            "-sc_threshold",
+            "0",
+            "-profile:v",
+            &video.profile,
+            "-level:v",
+            &video.level,
+            "-preset",
+            &video.preset,
+            "-s",
+            &format!("{}x{}", video.width, video.height),
         ]);
 
         if let Some(tune) = &video.tune {
@@ -527,7 +556,10 @@ impl TranscodePipeline {
     }
 
     /// Add audio encoding arguments.
-    fn add_audio_encoding_args(cmd: &mut tokio::process::Command, audio: &AudioEncodingParams) -> anyhow::Result<()> {
+    fn add_audio_encoding_args(
+        cmd: &mut tokio::process::Command,
+        audio: &AudioEncodingParams,
+    ) -> anyhow::Result<()> {
         let codec_str = match audio.codec {
             AudioCodec::Aac => "aac",
             AudioCodec::Opus => "libopus",
@@ -536,10 +568,14 @@ impl TranscodePipeline {
         };
 
         cmd.args(&[
-            "-c:a", codec_str,
-            "-b:a", &audio.bitrate_bps.to_string(),
-            "-ar", &audio.sample_rate.to_string(),
-            "-ac", &audio.channels.to_string(),
+            "-c:a",
+            codec_str,
+            "-b:a",
+            &audio.bitrate_bps.to_string(),
+            "-ar",
+            &audio.sample_rate.to_string(),
+            "-ac",
+            &audio.channels.to_string(),
         ]);
 
         if let Some(profile) = &audio.profile {
@@ -557,13 +593,20 @@ impl TranscodePipeline {
     ) -> anyhow::Result<()> {
         // Segmented output for HLS/DASH
         cmd.args(&[
-            "-f", "hls",
-            "-hls_time", &output_config.segment_duration.as_secs().to_string(),
-            "-hls_list_size", &output_config.hls_playlist_window.to_string(),
-            "-hls_flags", "independent_segments+program_date_time",
-            "-hls_segment_type", "fmp4",
-            "-master_pl_name", "master.m3u8",
-            "-hls_segment_filename", &format!("{}_%06d.m4s", profile.name),
+            "-f",
+            "hls",
+            "-hls_time",
+            &output_config.segment_duration.as_secs().to_string(),
+            "-hls_list_size",
+            &output_config.hls_playlist_window.to_string(),
+            "-hls_flags",
+            "independent_segments+program_date_time",
+            "-hls_segment_type",
+            "fmp4",
+            "-master_pl_name",
+            "master.m3u8",
+            "-hls_segment_filename",
+            &format!("{}_%06d.m4s", profile.name),
             &format!("{}.m3u8", profile.name),
         ]);
 
@@ -591,7 +634,13 @@ impl TranscodePipeline {
             segments_produced: session.segments_produced,
             bytes_processed: session.bytes_processed,
             errors: session.errors,
-            profiles: session.job.output_config.outputs.iter().map(|o| o.name.clone()).collect(),
+            profiles: session
+                .job
+                .output_config
+                .outputs
+                .iter()
+                .map(|o| o.name.clone())
+                .collect(),
         })
     }
 
@@ -871,16 +920,16 @@ mod tests {
     #[test]
     fn test_default_live_abr_ladder() {
         let ladder = default_live_abr_ladder();
-        
+
         assert_eq!(ladder.len(), 4);
         assert_eq!(ladder[0].name, "1080p");
         assert_eq!(ladder[1].name, "720p");
         assert_eq!(ladder[2].name, "480p");
         assert_eq!(ladder[3].name, "360p");
-        
+
         // Check bandwidths are descending
         for i in 1..ladder.len() {
-            assert!(ladder[i-1].bandwidth_bps > ladder[i].bandwidth_bps);
+            assert!(ladder[i - 1].bandwidth_bps > ladder[i].bandwidth_bps);
         }
     }
 

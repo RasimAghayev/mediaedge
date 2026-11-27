@@ -1113,7 +1113,10 @@ pub struct StorageNodeConfig {
 impl Default for StorageNodeConfig {
     fn default() -> Self {
         Self {
-            server: ServerConfig { port: 8081, ..Default::default() },
+            server: ServerConfig {
+                port: 8081,
+                ..Default::default()
+            },
             auth: AuthConfig::default(),
             metrics: MetricsConfig::default(),
             tracing: TracingConfig::default(),
@@ -1131,7 +1134,10 @@ impl Default for StorageConfig {
     fn default() -> Self {
         Self {
             backend: "fs".to_string(),
-            fs: Some(FsStorageConfig { root: "/data/storage".to_string(), create_if_missing: true }),
+            fs: Some(FsStorageConfig {
+                root: "/data/storage".to_string(),
+                create_if_missing: true,
+            }),
             s3: None,
             azblob: None,
             gcs: None,
@@ -1347,7 +1353,10 @@ pub struct EdgeNodeConfig {
 impl Default for EdgeNodeConfig {
     fn default() -> Self {
         Self {
-            server: ServerConfig { port: 8082, ..Default::default() },
+            server: ServerConfig {
+                port: 8082,
+                ..Default::default()
+            },
             auth: AuthConfig::default(),
             metrics: MetricsConfig::default(),
             tracing: TracingConfig::default(),
@@ -1555,7 +1564,10 @@ pub struct ReplicationCoordinatorConfig {
 impl Default for ReplicationCoordinatorConfig {
     fn default() -> Self {
         Self {
-            server: ServerConfig { port: 8083, ..Default::default() },
+            server: ServerConfig {
+                port: 8083,
+                ..Default::default()
+            },
             auth: AuthConfig::default(),
             metrics: MetricsConfig::default(),
             tracing: TracingConfig::default(),
@@ -1744,7 +1756,10 @@ pub struct MediaProcessorConfig {
 impl Default for MediaProcessorConfig {
     fn default() -> Self {
         Self {
-            server: ServerConfig { port: 8084, ..Default::default() },
+            server: ServerConfig {
+                port: 8084,
+                ..Default::default()
+            },
             auth: AuthConfig::default(),
             metrics: MetricsConfig::default(),
             tracing: TracingConfig::default(),

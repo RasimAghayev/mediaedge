@@ -12,55 +12,52 @@
 #![warn(missing_docs)]
 
 pub mod ai;
-pub mod types;
-pub mod tracing;
-pub mod metrics;
-pub mod logging;
-pub mod slo;
 pub mod fanout;
+pub mod logging;
+pub mod metrics;
+pub mod slo;
+pub mod tracing;
+pub mod types;
 
 // Re-export main types
 pub use types::{
-    ObservabilityConfig, TracingConfig, OtelConfig, JaegerConfig, BatchConfig,
-    MetricsConfig, LoggingConfig, SloConfig, AlertThresholds, FanoutConfig,
+    AlertThresholds, BatchConfig, FanoutConfig, JaegerConfig, LoggingConfig, MetricsConfig,
+    ObservabilityConfig, OtelConfig, SloConfig, TracingConfig,
 };
 
 pub use tracing::{
-    init_tracing, TracingGuard, extract_trace_context, inject_trace_context,
+    TracingGuard, extract_trace_context, init_tracing, inject_trace_context,
     trace_context_middleware,
 };
 
 pub use metrics::{
-    MetricsRegistry, MetricsTimer, MetricsTimerExt, ClientSampleMetadata,
-    metrics_middleware, SloEvaluator, SloEvaluationResult, TransportSloResult, SloStatus,
+    ClientSampleMetadata, MetricsRegistry, MetricsTimer, MetricsTimerExt, SloEvaluationResult,
+    SloEvaluator, SloStatus, TransportSloResult, metrics_middleware,
 };
 
 pub use logging::{
-    LogEntry, LogBuffer, LogLayer, init_logging, live_tail_routes,
-    LiveTailParams, RecentLogsParams, LogQuery,
+    LiveTailParams, LogBuffer, LogEntry, LogLayer, LogQuery, RecentLogsParams, init_logging,
+    live_tail_routes,
 };
 
 pub use slo::{
-    SloTracker, ClientSample, ClientSampleBatch, SloStatusReport, TransportSloStatus,
-    SloStatus, slo_routes, SloEvaluator,
+    ClientSample, ClientSampleBatch, SloEvaluator, SloStatus, SloStatusReport, SloTracker,
+    TransportSloStatus, slo_routes,
 };
 
-pub use fanout::{
-    FanoutRecorder, FanoutLayer,
-};
+pub use fanout::{FanoutLayer, FanoutRecorder};
 
 pub use ai::{
-    AnomalyDetector, AnomalyDetectionConfig, AnomalyEvent, AnomalyType, AnomalySeverity,
-    AnomalyModel, AnomalyModelType, StatisticalModel,
+    AnomalyDetectionConfig, AnomalyDetector, AnomalyEvent, AnomalyModel, AnomalyModelType,
+    AnomalySeverity, AnomalyType, StatisticalModel,
 };
 
 /// Prelude for convenient imports.
 pub mod prelude {
     pub use crate::{
-        ObservabilityConfig, MetricsRegistry, SloTracker, LogBuffer,
-        init_tracing, init_logging, live_tail_routes, slo_routes,
-        MetricsTimerExt, SloEvaluator,
-        AnomalyDetector, AnomalyDetectionConfig, AnomalyEvent,
+        AnomalyDetectionConfig, AnomalyDetector, AnomalyEvent, LogBuffer, MetricsRegistry,
+        MetricsTimerExt, ObservabilityConfig, SloEvaluator, SloTracker, init_logging, init_tracing,
+        live_tail_routes, slo_routes,
     };
 }
 
@@ -79,12 +76,20 @@ pub fn init_observability(config: &ObservabilityConfig) -> anyhow::Result<Observ
     let slo_tracker = Arc::new(slo::SloTracker::new(config.slo.clone()));
 
     // Initialize SLO evaluator
-    let slo_evaluator = Arc::new(slo::SloEvaluator::new(slo_tracker.clone(), metrics_registry.clone()));
+    let slo_evaluator = Arc::new(slo::SloEvaluator::new(
+        slo_tracker.clone(),
+        metrics_registry.clone(),
+    ));
 
     // Initialize anomaly detector
-    let anomaly_detector = Arc::new(ai::AnomalyDetector::new(config.ai.anomaly_detection.clone()));
+    let anomaly_detector = Arc::new(ai::AnomalyDetector::new(
+        config.ai.anomaly_detection.clone(),
+    ));
 
-    info!("Observability stack initialized for service: {}", config.service_name);
+    info!(
+        "Observability stack initialized for service: {}",
+        config.service_name
+    );
 
     Ok(ObservabilityHandles {
         tracing_guard,
@@ -113,7 +118,10 @@ impl ObservabilityHandles {
             // Metrics
             .route(&config.metrics.path, axum::routing::get(metrics_handler))
             // Live log tail
-            .merge(logging::live_tail_routes(self.log_buffer.clone(), &config.logging))
+            .merge(logging::live_tail_routes(
+                self.log_buffer.clone(),
+                &config.logging,
+            ))
             // SLO
             .merge(slo::slo_routes(self.slo_tracker.clone()))
     }
@@ -126,15 +134,12 @@ async fn metrics_handler(
     Ok(registry.render_prometheus())
 }
 
-use axum::{
-    extract::State,
-    routing::get,
-};
+use axum::{extract::State, routing::get};
 
+use crate::ai::AnomalyDetector;
 use crate::logging::LogBuffer;
 use crate::metrics::MetricsRegistry;
 use crate::slo::SloTracker;
-use crate::ai::AnomalyDetector;
 
 #[cfg(test)]
 mod tests {

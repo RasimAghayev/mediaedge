@@ -1,12 +1,12 @@
 //! Cluster Module - Gossip-based cluster membership and ownership
 
-pub mod gossip;
-pub mod ownership;
 pub mod capacity;
-pub mod redirect;
 pub mod config_sync;
 pub mod federation;
+pub mod gossip;
 pub mod mesh;
+pub mod ownership;
+pub mod redirect;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,13 +14,13 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::gossip::{GossipProtocol, GossipEvent};
-use crate::ownership::OwnershipManager;
 use crate::capacity::CapacityManager;
-use crate::redirect::RedirectManager;
 use crate::config_sync::ConfigSyncManager;
 use crate::federation::FederationManager;
+use crate::gossip::{GossipEvent, GossipProtocol};
 use crate::mesh::MeshManager;
+use crate::ownership::OwnershipManager;
+use crate::redirect::RedirectManager;
 use mediaedge_config::types::ServerConfig;
 use mediaedge_observability::MetricsRegistry;
 
@@ -76,7 +76,10 @@ impl ClusterManager {
             return Ok(());
         }
 
-        info!("Starting cluster manager for node: {}", self.server_config.node_id);
+        info!(
+            "Starting cluster manager for node: {}",
+            self.server_config.node_id
+        );
 
         // Initialize gossip protocol
         let gossip = GossipProtocol::new(
@@ -84,7 +87,8 @@ impl ClusterManager {
             self.server_config.bind_address.clone(),
             self.server_config.cluster_port,
             self.metrics.clone(),
-        ).await?;
+        )
+        .await?;
 
         // Start gossip
         gossip.start().await?;

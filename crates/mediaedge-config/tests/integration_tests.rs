@@ -1,17 +1,17 @@
 //! Integration tests for mediaedge-config.
 
-use mediaedge_config::{
-    ConfigLoader, ConfigError, HotReloadState, hot_reload_routes,
-    types::{GatewayConfig, ServiceConfig, ServerConfig, AuthConfig, AuthMode, JwtConfig},
-    secrets::{SecretsManager, SecretsManagerConfig, EncryptedSecret, generate_age_keypair},
-};
-use tempfile::NamedTempFile;
-use std::io::Write;
-use std::sync::Arc;
 use axum::{
     body::Body,
-    http::{Request, StatusCode, HeaderMap, HeaderValue},
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
 };
+use mediaedge_config::{
+    ConfigError, ConfigLoader, HotReloadState, hot_reload_routes,
+    secrets::{EncryptedSecret, SecretsManager, SecretsManagerConfig, generate_age_keypair},
+    types::{AuthConfig, AuthMode, GatewayConfig, JwtConfig, ServerConfig, ServiceConfig},
+};
+use std::io::Write;
+use std::sync::Arc;
+use tempfile::NamedTempFile;
 use tower::ServiceExt;
 
 fn create_gateway_config_toml() -> String {
@@ -90,7 +90,8 @@ playlist_window = 10
 enabled = true
 path = "/api/v1/admin"
 allowed_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-"#.to_string()
+"#
+    .to_string()
 }
 
 fn write_temp_config(content: &str) -> NamedTempFile {
@@ -149,13 +150,13 @@ async fn test_load_gateway_config() {
 #[tokio::test]
 async fn test_env_override() {
     let file = write_temp_config(&create_gateway_config_toml());
-    
+
     // Set env var to override port
     std::env::set_var("MEDIAEDGE_SERVER__PORT", "9090");
-    
+
     let loader = ConfigLoader::<GatewayConfig>::from_file(file.path()).unwrap();
     assert_eq!(loader.config().server.port, 9090);
-    
+
     std::env::remove_var("MEDIAEDGE_SERVER__PORT");
 }
 
@@ -163,7 +164,7 @@ async fn test_env_override() {
 async fn test_hot_reload() {
     let mut file = write_temp_config(&create_gateway_config_toml());
     let loader = Arc::new(ConfigLoader::<GatewayConfig>::from_file(file.path()).unwrap());
-    
+
     let initial_version = loader.meta().version;
     assert_eq!(initial_version, 1);
     assert_eq!(loader.config().server.port, 8080);
@@ -222,8 +223,10 @@ async fn test_hot_reload_endpoint() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
     assert_eq!(json["version"], 1);
@@ -233,10 +236,10 @@ async fn test_hot_reload_endpoint() {
 async fn test_hot_reload_endpoint_with_auth() {
     let file = write_temp_config(&create_gateway_config_toml());
     let loader = Arc::new(ConfigLoader::<GatewayConfig>::from_file(file.path()).unwrap());
-    
+
     // Set admin token
     std::env::set_var("MEDIAEDGE_ADMIN_TOKEN", "secret-token");
-    
+
     let state = HotReloadState {
         loader: loader.clone(),
         service_name: "gateway".to_string(),
@@ -260,8 +263,11 @@ async fn test_hot_reload_endpoint_with_auth() {
 
     // Request with auth should succeed
     let mut headers = HeaderMap::new();
-    headers.insert("authorization", HeaderValue::from_static("Bearer secret-token"));
-    
+    headers.insert(
+        "authorization",
+        HeaderValue::from_static("Bearer secret-token"),
+    );
+
     let response = app
         .oneshot(
             Request::builder()
@@ -301,8 +307,10 @@ async fn test_config_version_endpoint() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["version"], 1);
     assert_eq!(json["service"], "gateway");
@@ -335,7 +343,7 @@ enabled = true
 
     let result = ConfigLoader::<GatewayConfig>::from_file(file.path());
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         ConfigError::Validation(msg) => assert!(msg.contains("port")),
         _ => panic!("Expected validation error"),
@@ -367,8 +375,11 @@ async fn test_age_encryption() {
     };
 
     let manager = SecretsManager::new(config).await.unwrap();
-    
-    let secret = manager.encrypt_secret("test-key", "super-secret-value").await.unwrap();
+
+    let secret = manager
+        .encrypt_secret("test-key", "super-secret-value")
+        .await
+        .unwrap();
     assert_eq!(secret.method, "age");
     assert!(!secret.is_plaintext());
 
@@ -381,8 +392,10 @@ async fn test_plaintext_secret() {
     let secret = EncryptedSecret::plaintext("test-value");
     assert_eq!(secret.method, "plaintext");
     assert!(secret.is_plaintext());
-    
-    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &secret.payload).unwrap();
+
+    let decoded =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &secret.payload)
+            .unwrap();
     assert_eq!(String::from_utf8(decoded).unwrap(), "test-value");
 }
 
@@ -393,7 +406,7 @@ async fn test_secrets_manager_cache() {
 
     // Set env var for testing
     std::env::set_var("MEDIAEDGE_SECRET_TEST_KEY", "env-value");
-    
+
     let value = manager.get_secret("test_key").await.unwrap();
     assert_eq!(value, "env-value");
 

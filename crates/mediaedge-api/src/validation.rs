@@ -5,16 +5,16 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use axum::{
+    Json,
     body::Body,
     extract::{FromRequest, Request},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use pin_project_lite::pin_project;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tower::Service;
 use tracing::{debug, warn};
@@ -94,7 +94,7 @@ where
     async fn from_request(req: Request, state: &()) -> Result<Self, Self::Rejection> {
         // Extract bytes first to check size
         let (parts, body) = req.into_parts();
-        
+
         let bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -107,7 +107,8 @@ where
                         timestamp: chrono::Utc::now(),
                         request_id: None,
                     }),
-                ).into_response());
+                )
+                    .into_response());
             }
         };
 
@@ -124,7 +125,8 @@ where
                         timestamp: chrono::Utc::now(),
                         request_id: None,
                     }),
-                ).into_response());
+                )
+                    .into_response());
             }
         };
 
@@ -144,7 +146,8 @@ where
                         timestamp: chrono::Utc::now(),
                         request_id: None,
                     }),
-                ).into_response());
+                )
+                    .into_response());
             }
         };
 
@@ -160,7 +163,8 @@ where
                     timestamp: chrono::Utc::now(),
                     request_id: None,
                 }),
-            ).into_response());
+            )
+                .into_response());
         }
 
         Ok(ValidatedJson(data))
@@ -208,7 +212,8 @@ where
                         timestamp: chrono::Utc::now(),
                         request_id: None,
                     }),
-                ).into_response());
+                )
+                    .into_response());
             }
         };
 
@@ -223,7 +228,8 @@ where
                     timestamp: chrono::Utc::now(),
                     request_id: None,
                 }),
-            ).into_response());
+            )
+                .into_response());
         }
 
         Ok(ValidatedQuery(data))
@@ -261,7 +267,7 @@ where
         // Path parameters are extracted by axum's Path extractor
         // This is a placeholder - actual implementation would use axum::extract::Path
         let (mut parts, body) = req.into_parts();
-        
+
         // For now, just return an error - real implementation uses axum::extract::Path
         Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -272,7 +278,8 @@ where
                 timestamp: chrono::Utc::now(),
                 request_id: None,
             }),
-        ).into_response())
+        )
+            .into_response())
     }
 }
 
@@ -290,7 +297,10 @@ impl<S> ValidationMiddleware<S> {
 
 impl<S> Service<Request> for ValidationMiddleware<S>
 where
-    S: Service<Request, Response = Response, Error = std::convert::Infallible> + Clone + Send + 'static,
+    S: Service<Request, Response = Response, Error = std::convert::Infallible>
+        + Clone
+        + Send
+        + 'static,
     S::Future: Send + 'static,
 {
     type Response = Response;
@@ -348,10 +358,10 @@ mod tests {
     struct TestRequest {
         #[validate(length(min = 1, max = 100))]
         name: String,
-        
+
         #[validate(range(min = 1, max = 100))]
         age: u32,
-        
+
         #[validate(email)]
         email: String,
     }
@@ -361,7 +371,7 @@ mod tests {
         let config = ValidationConfig::new()
             .with_reject_unknown_fields(true)
             .with_max_body_size(1024 * 1024);
-        
+
         assert!(config.reject_unknown_fields);
         assert_eq!(config.max_body_size, 1024 * 1024);
     }

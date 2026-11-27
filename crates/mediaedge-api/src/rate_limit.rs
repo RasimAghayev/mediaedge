@@ -9,12 +9,12 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use axum::{
+    Json,
     body::Body,
     extract::{ConnectInfo, Request},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use dashmap::DashMap;
 use pin_project_lite::pin_project;
@@ -230,7 +230,11 @@ impl InMemoryRateLimiter {
             limit: self.config.requests_per_window,
             remaining,
             reset_time,
-            retry_after: if allowed { None } else { Some(reset_time.saturating_duration_since(Instant::now())) },
+            retry_after: if allowed {
+                None
+            } else {
+                Some(reset_time.saturating_duration_since(Instant::now()))
+            },
         }
     }
 
@@ -238,9 +242,8 @@ impl InMemoryRateLimiter {
     pub fn cleanup(&self) {
         let now = Instant::now();
         let window = self.config.window;
-        self.buckets.retain(|_, bucket| {
-            now.duration_since(bucket.last_refill) < window * 2
-        });
+        self.buckets
+            .retain(|_, bucket| now.duration_since(bucket.last_refill) < window * 2);
     }
 }
 
@@ -296,26 +299,23 @@ fn extract_key(req: &Request, config: &RateLimitConfig) -> String {
                 .map(|id| format!("{}{}", config.key_prefix, id))
                 .unwrap_or_else(|| format!("{}anonymous", config.key_prefix))
         }
-        KeyExtractor::ApiKey => {
-            req.headers()
-                .get("x-api-key")
-                .and_then(|v| v.to_str().ok())
-                .map(|k| format!("{}{}", config.key_prefix, k))
-                .unwrap_or_else(|| format!("{}no-api-key", config.key_prefix))
-        }
-        KeyExtractor::TenantId => {
-            req.extensions()
-                .get::<String>()
-                .map(|id| format!("{}tenant:{}", config.key_prefix, id))
-                .unwrap_or_else(|| format!("{}no-tenant", config.key_prefix))
-        }
-        KeyExtractor::CustomHeader(header) => {
-            req.headers()
-                .get(header)
-                .and_then(|v| v.to_str().ok())
-                .map(|v| format!("{}{}", config.key_prefix, v))
-                .unwrap_or_else(|| format!("{}missing-header", config.key_prefix))
-        }
+        KeyExtractor::ApiKey => req
+            .headers()
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|k| format!("{}{}", config.key_prefix, k))
+            .unwrap_or_else(|| format!("{}no-api-key", config.key_prefix)),
+        KeyExtractor::TenantId => req
+            .extensions()
+            .get::<String>()
+            .map(|id| format!("{}tenant:{}", config.key_prefix, id))
+            .unwrap_or_else(|| format!("{}no-tenant", config.key_prefix)),
+        KeyExtractor::CustomHeader(header) => req
+            .headers()
+            .get(header)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| format!("{}{}", config.key_prefix, v))
+            .unwrap_or_else(|| format!("{}missing-header", config.key_prefix)),
     }
 }
 
@@ -328,13 +328,20 @@ pub struct RateLimitMiddleware<S> {
 
 impl<S> RateLimitMiddleware<S> {
     pub fn new(inner: S, limiter: Arc<dyn RateLimiter>, config: RateLimitConfig) -> Self {
-        Self { inner, limiter, config }
+        Self {
+            inner,
+            limiter,
+            config,
+        }
     }
 }
 
 impl<S> Service<Request> for RateLimitMiddleware<S>
 where
-    S: Service<Request, Response = Response, Error = std::convert::Infallible> + Clone + Send + 'static,
+    S: Service<Request, Response = Response, Error = std::convert::Infallible>
+        + Clone
+        + Send
+        + 'static,
     S::Future: Send + 'static,
 {
     type Response = Response;
@@ -386,8 +393,9 @@ where
                         timestamp: chrono::Utc::now(),
                         request_id: None,
                     }),
-                ).into_response();
-                
+                )
+                    .into_response();
+
                 // Add headers to error response too
                 add_rate_limit_headers(resp.headers_mut(), &result, &config.headers);
                 return Ok(resp);
@@ -402,7 +410,11 @@ where
 }
 
 /// Add rate limit headers to response.
-fn add_rate_limit_headers(headers: &mut HeaderMap, result: &RateLimitResult, header_config: &RateLimitHeaders) {
+fn add_rate_limit_headers(
+    headers: &mut HeaderMap,
+    result: &RateLimitResult,
+    header_config: &RateLimitHeaders,
+) {
     let _ = headers.insert(
         HeaderName::from_bytes(header_config.limit.as_bytes()).unwrap(),
         HeaderValue::from_str(&result.limit.to_string()).unwrap(),
@@ -451,7 +463,10 @@ pub fn rate_limit_layer(config: RateLimitConfig) -> RateLimitLayer {
 }
 
 /// Create rate limit layer with custom limiter.
-pub fn rate_limit_layer_with_limiter(limiter: Arc<dyn RateLimiter>, config: RateLimitConfig) -> RateLimitLayer {
+pub fn rate_limit_layer_with_limiter(
+    limiter: Arc<dyn RateLimiter>,
+    config: RateLimitConfig,
+) -> RateLimitLayer {
     RateLimitLayer::new(limiter, config)
 }
 
@@ -463,12 +478,12 @@ mod tests {
     #[test]
     fn test_token_bucket() {
         let mut bucket = TokenBucket::new(10, Duration::from_secs(60));
-        
+
         // Should allow 10 requests
         for _ in 0..10 {
             assert!(bucket.try_consume(1));
         }
-        
+
         // 11th should be denied
         assert!(!bucket.try_consume(1));
         assert_eq!(bucket.remaining(), 0);
@@ -477,16 +492,16 @@ mod tests {
     #[test]
     fn test_token_bucket_refill() {
         let mut bucket = TokenBucket::new(10, Duration::from_secs(1));
-        
+
         // Consume all
         for _ in 0..10 {
             assert!(bucket.try_consume(1));
         }
         assert!(!bucket.try_consume(1));
-        
+
         // Wait for refill
         std::thread::sleep(Duration::from_secs(2));
-        
+
         // Should be refilled
         assert!(bucket.try_consume(1));
     }
@@ -496,15 +511,15 @@ mod tests {
         let config = RateLimitConfig::new()
             .with_requests_per_window(5)
             .with_window(Duration::from_secs(60));
-        
+
         let limiter = InMemoryRateLimiter::new(config);
-        
+
         // Allow 5 requests
         for _ in 0..5 {
             let result = limiter.check("test-key");
             assert!(result.allowed);
         }
-        
+
         // 6th denied
         let result = limiter.check("test-key");
         assert!(!result.allowed);
@@ -517,7 +532,7 @@ mod tests {
             .with_requests_per_window(100)
             .with_window(Duration::from_secs(30))
             .with_key_extractor(KeyExtractor::ApiKey);
-        
+
         assert_eq!(config.requests_per_window, 100);
         assert_eq!(config.window, Duration::from_secs(30));
         assert_eq!(config.key_extractor, KeyExtractor::ApiKey);
@@ -527,13 +542,13 @@ mod tests {
     fn test_extract_key_ip() {
         use axum::http::Request;
         use std::net::IpAddr;
-        
+
         let config = RateLimitConfig::new().with_key_extractor(KeyExtractor::Ip);
         let req = Request::builder()
             .extension(ConnectInfo(IpAddr::from([192, 168, 1, 1])))
             .body(Body::empty())
             .unwrap();
-        
+
         let key = extract_key(&req, &config);
         assert_eq!(key, "rl:192.168.1.1");
     }
@@ -541,13 +556,13 @@ mod tests {
     #[test]
     fn test_extract_key_forwarded() {
         use axum::http::Request;
-        
+
         let config = RateLimitConfig::new().with_key_extractor(KeyExtractor::Ip);
         let req = Request::builder()
             .header("x-forwarded-for", "10.0.0.1, 192.168.1.1")
             .body(Body::empty())
             .unwrap();
-        
+
         let key = extract_key(&req, &config);
         assert_eq!(key, "rl:10.0.0.1");
     }

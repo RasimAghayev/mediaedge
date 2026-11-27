@@ -12,8 +12,8 @@
 
 pub mod coordinator;
 pub mod erasure;
-pub mod planner;
 pub mod mesh;
+pub mod planner;
 
 use mediaedge_config::types::ReplicationCoordinatorConfig;
 use mediaedge_observability::MetricsRegistry;
@@ -45,22 +45,22 @@ impl ReplicationService {
                 config.coordinator.clone(),
                 local_node_id.clone(),
                 metrics.clone(),
-            ).await?
+            )
+            .await?,
         );
 
-        let planner = std::sync::Arc::new(
-            planner::ReplicationPlanner::new(
-                config.coordinator.planner.clone().unwrap_or_default(),
-                metrics.clone(),
-            )
-        );
+        let planner = std::sync::Arc::new(planner::ReplicationPlanner::new(
+            config.coordinator.planner.clone().unwrap_or_default(),
+            metrics.clone(),
+        ));
 
         let mesh = std::sync::Arc::new(
             mesh::MeshManager::new(
                 config.coordinator.mesh.clone().unwrap_or_default(),
                 local_node_id,
                 metrics.clone(),
-            ).await?
+            )
+            .await?,
         );
 
         Ok(Self {

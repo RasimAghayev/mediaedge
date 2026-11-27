@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, RwLock as TokioRwLock};
+use tokio::sync::{RwLock as TokioRwLock, mpsc};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
 
@@ -73,7 +73,8 @@ pub struct PeerCapacity {
 impl PeerCapacity {
     /// Calculate available capacity score (0.0 - 1.0).
     pub fn capacity_score(&self) -> f32 {
-        let bw_score = 1.0 - (self.current_bandwidth_mbps as f32 / self.max_bandwidth_mbps.max(1) as f32);
+        let bw_score =
+            1.0 - (self.current_bandwidth_mbps as f32 / self.max_bandwidth_mbps.max(1) as f32);
         let peer_score = 1.0 - (self.current_peers as f32 / self.max_peers.max(1) as f32);
         (bw_score * 0.6 + peer_score * 0.4).clamp(0.0, 1.0)
     }
@@ -128,13 +129,17 @@ impl TopologyPlanner {
     /// Register a peer.
     pub fn register_peer(&self, peer: MeshPeer) {
         self.peers.insert(peer.node_id.clone(), peer);
-        self.metrics.gauge("mesh_peers_total", "Total mesh peers").increment(1);
+        self.metrics
+            .gauge("mesh_peers_total", "Total mesh peers")
+            .increment(1);
     }
 
     /// Unregister a peer.
     pub fn unregister_peer(&self, node_id: &MeshNodeId) {
         if self.peers.remove(node_id).is_some() {
-            self.metrics.gauge("mesh_peers_total", "Total mesh peers").decrement(1);
+            self.metrics
+                .gauge("mesh_peers_total", "Total mesh peers")
+                .decrement(1);
         }
     }
 
@@ -147,16 +152,12 @@ impl TopologyPlanner {
 
     /// Get best parent for a new peer.
     pub fn find_best_parent(&self, new_peer: &MeshPeer) -> Option<MeshNodeId> {
-        let mut candidates: Vec<&MeshPeer> = self.peers.iter()
-            .filter(|p| {
-                p.value().role == PeerRole::Root || p.value().role == PeerRole::Parent
-            })
-            .filter(|p| {
-                p.value().capacity.can_accept_children(1)
-            })
-            .filter(|p| {
-                p.value().capacity.capacity_score() >= self.config.min_capacity_score
-            })
+        let mut candidates: Vec<&MeshPeer> = self
+            .peers
+            .iter()
+            .filter(|p| p.value().role == PeerRole::Root || p.value().role == PeerRole::Parent)
+            .filter(|p| p.value().capacity.can_accept_children(1))
+            .filter(|p| p.value().capacity.capacity_score() >= self.config.min_capacity_score)
             .map(|p| p.value())
             .collect();
 
@@ -180,7 +181,9 @@ impl TopologyPlanner {
         }
 
         // Prefer same datacenter
-        if self.config.prefer_same_datacenter && parent.capacity.datacenter == new_peer.capacity.datacenter {
+        if self.config.prefer_same_datacenter
+            && parent.capacity.datacenter == new_peer.capacity.datacenter
+        {
             score += 30.0;
         }
 
@@ -198,7 +201,7 @@ impl TopologyPlanner {
     fn get_peer_depth(&self, node_id: &MeshNodeId) -> u32 {
         let mut depth = 0;
         let mut current = node_id.clone();
-        
+
         while let Some(peer) = self.peers.get(&current) {
             if let Some(parent_id) = &peer.parent {
                 current = parent_id.clone();
@@ -206,12 +209,12 @@ impl TopologyPlanner {
             } else {
                 break;
             }
-            
+
             if depth > self.config.max_depth {
                 break;
             }
         }
-        
+
         depth
     }
 
@@ -226,12 +229,20 @@ impl TopologyPlanner {
                 if capacity.current_peers > capacity.max_peers {
                     // Need to move some children to other parents
                     let excess = capacity.current_peers - capacity.max_peers;
-                    
+
                     // Find children to move (prefer those with lowest capacity score)
                     let mut children: Vec<MeshNodeId> = peer.children.clone();
                     children.sort_by(|a, b| {
-                        let a_score = self.peers.get(a).map(|p| p.capacity.capacity_score()).unwrap_or(1.0);
-                        let b_score = self.peers.get(b).map(|p| p.capacity.capacity_score()).unwrap_or(1.0);
+                        let a_score = self
+                            .peers
+                            .get(a)
+                            .map(|p| p.capacity.capacity_score())
+                            .unwrap_or(1.0);
+                        let b_score = self
+                            .peers
+                            .get(b)
+                            .map(|p| p.capacity.capacity_score())
+                            .unwrap_or(1.0);
                         a_score.partial_cmp(&b_score).unwrap()
                     });
 
@@ -354,7 +365,11 @@ pub struct SignalingSession {
 
 impl SignalingManager {
     /// Create a new signaling manager.
-    pub fn new(config: SignalingConfig, planner: Arc<TopologyPlanner>, metrics: Arc<MetricsRegistry>) -> Self {
+    pub fn new(
+        config: SignalingConfig,
+        planner: Arc<TopologyPlanner>,
+        metrics: Arc<MetricsRegistry>,
+    ) -> Self {
         Self {
             config,
             sessions: Arc::new(DashMap::new()),
@@ -401,7 +416,9 @@ impl SignalingManager {
         self.planner.register_peer(peer);
         self.sessions.insert(session_id.clone(), session.clone());
 
-        self.metrics.counter("mesh_signaling_sessions_total", "Total signaling sessions").increment(1);
+        self.metrics
+            .counter("mesh_signaling_sessions_total", "Total signaling sessions")
+            .increment(1);
 
         Ok(session)
     }
@@ -409,7 +426,7 @@ impl SignalingManager {
     /// Determine peer role.
     async fn determine_role(&self, node_id: &MeshNodeId, capacity: &PeerCapacity) -> PeerRole {
         let peers = self.planner.get_peers();
-        
+
         // If no peers, become root
         if peers.is_empty() {
             return PeerRole::Root;
@@ -478,7 +495,12 @@ impl SignalingManager {
     pub fn remove_session(&self, session_id: &str) {
         if let Some((_, session)) = self.sessions.remove(session_id) {
             self.planner.unregister_peer(&session.node_id);
-            self.metrics.counter("mesh_signaling_sessions_removed_total", "Removed signaling sessions").increment(1);
+            self.metrics
+                .counter(
+                    "mesh_signaling_sessions_removed_total",
+                    "Removed signaling sessions",
+                )
+                .increment(1);
         }
     }
 
@@ -487,7 +509,9 @@ impl SignalingManager {
         let now = Instant::now();
         let timeout = Duration::from_secs(self.config.session_timeout_secs);
 
-        let stale: Vec<String> = self.sessions.iter()
+        let stale: Vec<String> = self
+            .sessions
+            .iter()
             .filter(|s| now.duration_since(s.last_heartbeat) > timeout)
             .map(|s| s.session_id.clone())
             .collect();
@@ -517,13 +541,11 @@ pub struct WebRTCMeshConfig {
 impl Default for WebRTCMeshConfig {
     fn default() -> Self {
         Self {
-            ice_servers: vec![
-                IceServerConfig {
-                    urls: vec!["stun:stun.l.google.com:19302".to_string()],
-                    username: None,
-                    credential: None,
-                }
-            ],
+            ice_servers: vec![IceServerConfig {
+                urls: vec!["stun:stun.l.google.com:19302".to_string()],
+                username: None,
+                credential: None,
+            }],
             max_data_channels: 100,
             data_channel_buffer_size: 65536,
             reconnect_timeout_secs: 30,
@@ -603,7 +625,7 @@ impl WebRTCMeshManager {
         // 5. Handle ICE candidates
 
         let connection_id = uuid::Uuid::new_v4().to_string();
-        
+
         let connection = WebRTCConnection {
             connection_id: connection_id.clone(),
             local_node_id: local_node_id.clone(),
@@ -617,9 +639,14 @@ impl WebRTCMeshManager {
         };
 
         self.connections.insert(connection_id.clone(), connection);
-        self.metrics.counter("mesh_webrtc_connections_total", "Total WebRTC connections").increment(1);
+        self.metrics
+            .counter("mesh_webrtc_connections_total", "Total WebRTC connections")
+            .increment(1);
 
-        info!("WebRTC mesh connection initiated: {} -> {} (child)", local_node_id.0, parent_node_id.0);
+        info!(
+            "WebRTC mesh connection initiated: {} -> {} (child)",
+            local_node_id.0, parent_node_id.0
+        );
 
         Ok(connection_id)
     }
@@ -631,7 +658,7 @@ impl WebRTCMeshManager {
         child_node_id: MeshNodeId,
     ) -> anyhow::Result<String> {
         let connection_id = uuid::Uuid::new_v4().to_string();
-        
+
         let connection = WebRTCConnection {
             connection_id: connection_id.clone(),
             local_node_id: local_node_id.clone(),
@@ -645,9 +672,14 @@ impl WebRTCMeshManager {
         };
 
         self.connections.insert(connection_id.clone(), connection);
-        self.metrics.counter("mesh_webrtc_connections_total", "Total WebRTC connections").increment(1);
+        self.metrics
+            .counter("mesh_webrtc_connections_total", "Total WebRTC connections")
+            .increment(1);
 
-        info!("WebRTC mesh connection accepted: {} <- {} (parent)", local_node_id.0, child_node_id.0);
+        info!(
+            "WebRTC mesh connection accepted: {} <- {} (parent)",
+            local_node_id.0, child_node_id.0
+        );
 
         Ok(connection_id)
     }
@@ -679,7 +711,12 @@ impl WebRTCMeshManager {
     }
 
     /// Send data on a stream.
-    pub fn send_stream_data(&self, connection_id: &str, stream_id: &str, data: &[u8]) -> anyhow::Result<()> {
+    pub fn send_stream_data(
+        &self,
+        connection_id: &str,
+        stream_id: &str,
+        data: &[u8],
+    ) -> anyhow::Result<()> {
         if let Some(mut conn) = self.connections.get_mut(connection_id) {
             if let Some(channel) = conn.data_channels.get_mut(stream_id) {
                 if channel.state == DataChannelConnectionState::Open {
@@ -687,7 +724,7 @@ impl WebRTCMeshManager {
                     channel.bytes_sent += data.len() as u64;
                     conn.bytes_sent += data.len() as u64;
                     conn.last_activity = Instant::now();
-                    
+
                     // In real implementation: send via WebRTC DataChannel
                     // dc.send(data).await?;
                 }
@@ -711,7 +748,12 @@ impl WebRTCMeshManager {
     /// Close connection.
     pub fn close_connection(&self, connection_id: &str) {
         if let Some((_, conn)) = self.connections.remove(connection_id) {
-            self.metrics.counter("mesh_webrtc_connections_closed_total", "Closed WebRTC connections").increment(1);
+            self.metrics
+                .counter(
+                    "mesh_webrtc_connections_closed_total",
+                    "Closed WebRTC connections",
+                )
+                .increment(1);
             info!("WebRTC mesh connection closed: {}", connection_id);
         }
     }
@@ -788,13 +830,19 @@ impl Default for MeshManagerConfig {
 impl MeshManager {
     /// Create a new mesh manager.
     pub fn new(config: MeshManagerConfig, metrics: Arc<MetricsRegistry>) -> Self {
-        let planner = Arc::new(TopologyPlanner::new(config.planner_config.clone(), metrics.clone()));
+        let planner = Arc::new(TopologyPlanner::new(
+            config.planner_config.clone(),
+            metrics.clone(),
+        ));
         let signaling = Arc::new(SignalingManager::new(
             config.signaling_config.clone(),
             planner.clone(),
             metrics.clone(),
         ));
-        let webrtc = Arc::new(WebRTCMeshManager::new(config.webrtc_config.clone(), metrics.clone()));
+        let webrtc = Arc::new(WebRTCMeshManager::new(
+            config.webrtc_config.clone(),
+            metrics.clone(),
+        ));
 
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
@@ -856,7 +904,9 @@ impl MeshManager {
         let metrics = self.metrics.clone();
 
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(config.planner_config.rebalance_interval_secs));
+            let mut interval = interval(Duration::from_secs(
+                config.planner_config.rebalance_interval_secs,
+            ));
 
             loop {
                 tokio::select! {
@@ -867,9 +917,9 @@ impl MeshManager {
 
                         let actions = planner.rebalance();
                         for action in actions {
-                            info!("Rebalancing: move {} from {} to {} ({})", 
+                            info!("Rebalancing: move {} from {} to {} ({})",
                                 action.child_id.0, action.old_parent.0, action.new_parent.0, action.reason);
-                            
+
                             // In real implementation: trigger WebRTC reconnection
                             metrics.counter("mesh_rebalance_actions_total", "Rebalance actions").increment(1);
                         }
@@ -891,7 +941,9 @@ impl MeshManager {
         let config = self.config.clone();
 
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(config.signaling_config.heartbeat_interval_secs));
+            let mut interval = interval(Duration::from_secs(
+                config.signaling_config.heartbeat_interval_secs,
+            ));
 
             loop {
                 tokio::select! {

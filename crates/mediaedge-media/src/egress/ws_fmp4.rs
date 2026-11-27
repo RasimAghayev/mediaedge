@@ -16,7 +16,7 @@ use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use mp4::{Mp4Box, Sample, Track, TrackType};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio::time::interval;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
@@ -168,7 +168,10 @@ pub async fn run_ws_fmp4_egress(
         base_url,
     };
 
-    info!("WebSocket fMP4 egress server started for stream: {}", stream_id.0);
+    info!(
+        "WebSocket fMP4 egress server started for stream: {}",
+        stream_id.0
+    );
 
     // WebSocket fMP4 is connection-based, not a continuous process
     // This would be invoked via WebSocket upgrade
@@ -188,10 +191,14 @@ pub async fn handle_ws_fmp4_connection(
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     let session_id = uuid::Uuid::new_v4().to_string();
-    info!("WebSocket fMP4 connection accepted: {} for stream {}", session_id, stream_id.0);
+    info!(
+        "WebSocket fMP4 connection accepted: {} for stream {}",
+        session_id, stream_id.0
+    );
 
     // Subscribe to stream
-    let mut subscriber = registry.subscribe_with_buffer(stream_id.clone(), 1000)
+    let mut subscriber = registry
+        .subscribe_with_buffer(stream_id.clone(), 1000)
         .ok_or_else(|| anyhow::anyhow!("Failed to subscribe to stream"))?;
 
     // Create session
@@ -216,7 +223,7 @@ pub async fn handle_ws_fmp4_connection(
 
     // Start media forwarding
     let (tx, mut rx) = mpsc::channel::<Fmp4Segment>(1000);
-    
+
     // Fragment processing task
     let fragment_task = tokio::spawn(async move {
         while let Some(fragment) = subscriber.next().await {
@@ -245,7 +252,7 @@ pub async fn handle_ws_fmp4_connection(
                         break; // Channel closed
                     }
                 }
-                
+
                 msg = ws_receiver.next() => {
                     if let Some(msg) = msg {
                         if let Err(e) = handle_ws_message(msg?, &mut session, &mut ws_sender).await {
@@ -256,7 +263,7 @@ pub async fn handle_ws_fmp4_connection(
                         break; // Connection closed
                     }
                 }
-                
+
                 _ = ping_interval.tick() => {
                     let ping = WsFmp4Message::Ping {
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
@@ -268,7 +275,7 @@ pub async fn handle_ws_fmp4_connection(
                 }
             }
         }
-        
+
         // Cleanup
         fragment_task.abort();
         session.state = WsFmp4SessionState::Closed;
@@ -282,47 +289,56 @@ pub async fn handle_ws_fmp4_connection(
 /// Initialize tracks for a session.
 async fn initialize_tracks(session: &mut WsFmp4Session) {
     // Video track
-    session.tracks.insert("video".to_string(), WsFmp4TrackState {
-        track_id: 1,
-        track_type: TrackType::Video,
-        timescale: 90000,
-        sequence_number: 0,
-        last_timestamp: 0,
-        init_segment: None,
-        config: WsFmp4TrackConfig {
-            track_name: "video".to_string(),
-            mime_type: "video/mp4".to_string(),
-            codecs: "avc1.640028".to_string(),
-            width: Some(1920),
-            height: Some(1080),
-            sample_rate: None,
-            channel_count: None,
+    session.tracks.insert(
+        "video".to_string(),
+        WsFmp4TrackState {
+            track_id: 1,
+            track_type: TrackType::Video,
+            timescale: 90000,
+            sequence_number: 0,
+            last_timestamp: 0,
+            init_segment: None,
+            config: WsFmp4TrackConfig {
+                track_name: "video".to_string(),
+                mime_type: "video/mp4".to_string(),
+                codecs: "avc1.640028".to_string(),
+                width: Some(1920),
+                height: Some(1080),
+                sample_rate: None,
+                channel_count: None,
+            },
         },
-    });
+    );
 
     // Audio track
-    session.tracks.insert("audio".to_string(), WsFmp4TrackState {
-        track_id: 2,
-        track_type: TrackType::Audio,
-        timescale: 48000,
-        sequence_number: 0,
-        last_timestamp: 0,
-        init_segment: None,
-        config: WsFmp4TrackConfig {
-            track_name: "audio".to_string(),
-            mime_type: "audio/mp4".to_string(),
-            codecs: "mp4a.40.2".to_string(),
-            width: None,
-            height: None,
-            sample_rate: Some(48000),
-            channel_count: Some(2),
+    session.tracks.insert(
+        "audio".to_string(),
+        WsFmp4TrackState {
+            track_id: 2,
+            track_type: TrackType::Audio,
+            timescale: 48000,
+            sequence_number: 0,
+            last_timestamp: 0,
+            init_segment: None,
+            config: WsFmp4TrackConfig {
+                track_name: "audio".to_string(),
+                mime_type: "audio/mp4".to_string(),
+                codecs: "mp4a.40.2".to_string(),
+                width: None,
+                height: None,
+                sample_rate: Some(48000),
+                channel_count: Some(2),
+            },
         },
-    });
+    );
 }
 
 /// Send initialization segment.
 async fn send_init_segment(
-    ws_sender: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>,
+    ws_sender: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        Message,
+    >,
     session: &WsFmp4Session,
 ) -> anyhow::Result<()> {
     let mut init_tracks = Vec::new();
@@ -330,7 +346,7 @@ async fn send_init_segment(
     for (name, track) in &session.tracks {
         // Generate fMP4 initialization segment (ftyp + moov)
         let init_segment = generate_init_segment(&track.config)?;
-        
+
         init_tracks.push(InitTrackInfo {
             track_id: track.track_id,
             track_name: name.clone(),
@@ -344,7 +360,9 @@ async fn send_init_segment(
         });
     }
 
-    let msg = WsFmp4Message::Init { tracks: init_tracks };
+    let msg = WsFmp4Message::Init {
+        tracks: init_tracks,
+    };
     let json = serde_json::to_string(&msg)?;
     ws_sender.send(Message::Text(json)).await?;
 
@@ -356,7 +374,7 @@ fn generate_init_segment(config: &WsFmp4TrackConfig) -> anyhow::Result<Bytes> {
     // This is a simplified implementation
     // Real implementation would use mp4 crate to build proper init segment
     let mut buf = BytesMut::new();
-    
+
     // ftyp box
     buf.extend_from_slice(b"ftyp");
     buf.extend_from_slice(&[0, 0, 0, 0]); // size placeholder
@@ -366,13 +384,13 @@ fn generate_init_segment(config: &WsFmp4TrackConfig) -> anyhow::Result<Bytes> {
     buf.extend_from_slice(b"iso2");
     buf.extend_from_slice(b"avc1");
     buf.extend_from_slice(b"mp41");
-    
+
     // moov box (simplified)
     buf.extend_from_slice(b"moov");
     buf.extend_from_slice(&[0, 0, 0, 0]); // size placeholder
-    
+
     // In real implementation, would build proper mvhd, trak, mdia, etc.
-    
+
     Ok(buf.freeze())
 }
 
@@ -381,7 +399,9 @@ async fn fragment_to_fmp4_segment(
     fragment: Fragment,
     session: &WsFmp4Session,
 ) -> Option<Fmp4Segment> {
-    let track_name = if fragment.meta.is_keyframe || fragment.meta.media_type == crate::fragment::MediaType::Video {
+    let track_name = if fragment.meta.is_keyframe
+        || fragment.meta.media_type == crate::fragment::MediaType::Video
+    {
         "video"
     } else {
         "audio"
@@ -390,7 +410,7 @@ async fn fragment_to_fmp4_segment(
     if let Some(track) = session.tracks.get(track_name) {
         // In real implementation, would package fragment payload into fMP4 segment
         // This involves creating moof + mdat boxes
-        
+
         Some(Fmp4Segment {
             track_id: track.track_id,
             sequence: track.sequence_number,
@@ -398,7 +418,11 @@ async fn fragment_to_fmp4_segment(
             duration: fragment.meta.duration as u64,
             is_sync_sample: fragment.meta.is_keyframe,
             data: fragment.payload,
-            sample_flags: if fragment.meta.is_keyframe { 0x2000000 } else { 0 },
+            sample_flags: if fragment.meta.is_keyframe {
+                0x2000000
+            } else {
+                0
+            },
         })
     } else {
         None
@@ -407,12 +431,15 @@ async fn fragment_to_fmp4_segment(
 
 /// Send fMP4 segment over WebSocket.
 async fn send_segment(
-    ws_sender: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>,
+    ws_sender: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        Message,
+    >,
     segment: &Fmp4Segment,
 ) -> anyhow::Result<()> {
     // Send as binary message for efficiency
     let mut data = BytesMut::new();
-    
+
     // Simple binary format: track_id (4) | sequence (8) | timestamp (8) | duration (8) | flags (4) | payload
     data.extend_from_slice(&segment.track_id.to_be_bytes());
     data.extend_from_slice(&segment.sequence.to_be_bytes());
@@ -420,7 +447,7 @@ async fn send_segment(
     data.extend_from_slice(&segment.duration.to_be_bytes());
     data.extend_from_slice(&segment.sample_flags.to_be_bytes());
     data.extend_from_slice(&segment.data);
-    
+
     ws_sender.send(Message::Binary(data.freeze())).await?;
     Ok(())
 }
@@ -429,7 +456,10 @@ async fn send_segment(
 async fn handle_ws_message(
     msg: Message,
     session: &mut WsFmp4Session,
-    ws_sender: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>,
+    ws_sender: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        Message,
+    >,
 ) -> anyhow::Result<()> {
     match msg {
         Message::Text(text) => {
@@ -437,11 +467,19 @@ async fn handle_ws_message(
                 match ws_msg {
                     WsFmp4Message::Ping { timestamp } => {
                         let pong = WsFmp4Message::Pong { timestamp };
-                        ws_sender.send(Message::Text(serde_json::to_string(&pong)?)).await?;
+                        ws_sender
+                            .send(Message::Text(serde_json::to_string(&pong)?))
+                            .await?;
                     }
-                    WsFmp4Message::Resume { track_id, from_sequence } => {
+                    WsFmp4Message::Resume {
+                        track_id,
+                        from_sequence,
+                    } => {
                         // Handle resume request
-                        info!("Resume requested for track {} from sequence {}", track_id, from_sequence);
+                        info!(
+                            "Resume requested for track {} from sequence {}",
+                            track_id, from_sequence
+                        );
                         // In real implementation, would seek and resend from sequence
                     }
                     _ => {}
@@ -512,15 +550,15 @@ impl Fmp4SegmentBuilder {
         is_sync: bool,
     ) -> Bytes {
         self.sequence += 1;
-        
+
         let mut buf = BytesMut::new();
-        
+
         // moof box
         self.write_moof(&mut buf, timestamp, duration, is_sync);
-        
+
         // mdat box
         self.write_mdat(&mut buf, &payload);
-        
+
         buf.freeze()
     }
 
@@ -530,7 +568,7 @@ impl Fmp4SegmentBuilder {
         buf.extend_from_slice(&[0, 0, 0, 16]); // size
         buf.extend_from_slice(&[0, 0, 0, 0]); // version/flags
         buf.extend_from_slice(&self.sequence.to_be_bytes()); // sequence number
-        
+
         // traf (Track Fragment)
         buf.extend_from_slice(b"traf");
         // ... tfhd, tfdt, trun boxes would go here
@@ -622,12 +660,7 @@ mod tests {
     #[test]
     fn test_fmp4_segment_builder() {
         let mut builder = Fmp4SegmentBuilder::new(1, 90000);
-        let segment = builder.build_segment(
-            Bytes::from_static(b"test payload"),
-            90000,
-            3000,
-            true,
-        );
+        let segment = builder.build_segment(Bytes::from_static(b"test payload"), 90000, 3000, true);
 
         assert!(!segment.is_empty());
         // Should contain moof and mdat boxes

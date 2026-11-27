@@ -18,8 +18,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::fragment::{Fragment, FragmentBroadcasterRegistry, FragmentMeta, StreamId};
-use mediaedge_observability::MetricsRegistry;
 use mediaedge_config::types::RistConfig;
+use mediaedge_observability::MetricsRegistry;
 
 /// RIST server state.
 struct RistServerState {
@@ -47,12 +47,12 @@ struct RistFlowInfo {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct RistPacketHeader {
-    version: u8,        // 2 bits
-    padding: bool,      // 1 bit
-    extension: bool,    // 1 bit
-    csrc_count: u8,     // 4 bits
-    marker: bool,       // 1 bit
-    payload_type: u8,   // 7 bits
+    version: u8,      // 2 bits
+    padding: bool,    // 1 bit
+    extension: bool,  // 1 bit
+    csrc_count: u8,   // 4 bits
+    marker: bool,     // 1 bit
+    payload_type: u8, // 7 bits
     sequence_number: u16,
     timestamp: u32,
     ssrc: u32,
@@ -97,7 +97,7 @@ pub async fn run_rist_server(
             Ok((len, peer_addr)) => {
                 let data = Bytes::copy_from_slice(&buf[..len]);
                 let state = state.clone();
-                
+
                 tokio::spawn(async move {
                     if let Err(e) = handle_rist_packet(data, peer_addr, state).await {
                         error!("RIST packet handling error from {}: {}", peer_addr, e);
@@ -123,13 +123,15 @@ async fn handle_rist_packet(
 
     // Parse RTP header
     let header = parse_rtp_header(&data)?;
-    
+
     // Extract flow ID from SSRC (in RIST, each flow has unique SSRC)
     let flow_id = format!("rist-{}-{}", peer_addr, header.ssrc);
-    
+
     // Get or create flow info
-    let mut flow_info = state.active_flows.entry(flow_id.clone()).or_insert_with(|| {
-        RistFlowInfo {
+    let mut flow_info = state
+        .active_flows
+        .entry(flow_id.clone())
+        .or_insert_with(|| RistFlowInfo {
             stream_id: StreamId::new(format!("rist-{}", header.ssrc)),
             flow_id: flow_id.clone(),
             peer_addr,
@@ -140,18 +142,25 @@ async fn handle_rist_packet(
             nack_sent: 0,
             rtt_estimate: Duration::from_millis(50),
             last_seq: header.sequence_number.wrapping_sub(1),
-        }
-    });
+        });
 
     // Check for packet loss (sequence number gap)
     let expected_seq = flow_info.last_seq.wrapping_add(1);
     if header.sequence_number != expected_seq {
         let lost = header.sequence_number.wrapping_sub(expected_seq) as u64;
         flow_info.packets_lost += lost;
-        
+
         // Send NACK for missing packets
-        if lost > 0 && lost < 100 { // Don't NACK huge gaps
-            send_nack(&state, peer_addr, flow_info.ssrc, expected_seq, header.sequence_number).await?;
+        if lost > 0 && lost < 100 {
+            // Don't NACK huge gaps
+            send_nack(
+                &state,
+                peer_addr,
+                flow_info.ssrc,
+                expected_seq,
+                header.sequence_number,
+            )
+            .await?;
             flow_info.nack_sent += lost;
         }
     }
@@ -164,15 +173,25 @@ async fn handle_rist_packet(
 
     // Extract payload (after RTP header)
     let payload = data.slice(12..); // Skip 12-byte RTP header
-    
+
     // Convert to fragment
-    let fragment = rist_payload_to_fragment(&flow_info.stream_id, payload, flow_info.packets_received);
+    let fragment =
+        rist_payload_to_fragment(&flow_info.stream_id, payload, flow_info.packets_received);
     state.registry.ingest(flow_info.stream_id.clone(), fragment);
 
     // Update metrics
-    state.metrics.counter("ingest_rist_packets_total", "Total RIST packets received").increment(1);
-    state.metrics.counter("ingest_rist_bytes_total", "Total RIST bytes received").increment(data.len() as u64);
-    state.metrics.counter("ingest_rist_nack_total", "Total RIST NACKs sent").increment(0); // Updated in send_nack
+    state
+        .metrics
+        .counter("ingest_rist_packets_total", "Total RIST packets received")
+        .increment(1);
+    state
+        .metrics
+        .counter("ingest_rist_bytes_total", "Total RIST bytes received")
+        .increment(data.len() as u64);
+    state
+        .metrics
+        .counter("ingest_rist_nack_total", "Total RIST NACKs sent")
+        .increment(0); // Updated in send_nack
 
     Ok(())
 }
@@ -185,14 +204,14 @@ fn parse_rtp_header(data: &[u8]) -> anyhow::Result<RistPacketHeader> {
 
     let byte0 = data[0];
     let byte1 = data[1];
-    
+
     let version = (byte0 >> 6) & 0x03;
     let padding = (byte0 >> 5) & 0x01 != 0;
     let extension = (byte0 >> 4) & 0x01 != 0;
     let csrc_count = byte0 & 0x0F;
     let marker = (byte1 >> 7) & 0x01 != 0;
     let payload_type = byte1 & 0x7F;
-    
+
     let sequence_number = u16::from_be_bytes([data[2], data[3]]);
     let timestamp = u32::from_be_bytes([data[4], data[5], data[6], data[7]]);
     let ssrc = u32::from_be_bytes([data[8], data[9], data[10], data[11]]);
@@ -220,20 +239,19 @@ async fn send_nack(
 ) -> anyhow::Result<()> {
     // Build NACK packet
     // This is simplified - real implementation would use proper RTCP format
-    debug!("Sending NACK to {} for seq {}-{}", peer_addr, start_seq, end_seq);
-    
+    debug!(
+        "Sending NACK to {} for seq {}-{}",
+        peer_addr, start_seq, end_seq
+    );
+
     // In a real implementation, this would send via a separate RTCP socket
     // or multiplexed on the same socket
-    
+
     Ok(())
 }
 
 /// Convert RIST payload to fragment.
-fn rist_payload_to_fragment(
-    stream_id: &StreamId,
-    payload: Bytes,
-    sequence: u64,
-) -> Fragment {
+fn rist_payload_to_fragment(stream_id: &StreamId, payload: Bytes, sequence: u64) -> Fragment {
     Fragment {
         meta: crate::fragment::FragmentMeta {
             stream_id: stream_id.clone(),
@@ -264,7 +282,7 @@ impl RistSender {
     pub async fn new(peer_addr: SocketAddr, ssrc: u32, clock_rate: u32) -> anyhow::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
         socket.connect(peer_addr).await?;
-        
+
         Ok(Self {
             socket,
             peer_addr,
@@ -276,43 +294,53 @@ impl RistSender {
     }
 
     /// Send a video frame.
-    pub async fn send_video_frame(&mut self, data: &[u8], is_keyframe: bool, frame_duration_ms: u32) -> anyhow::Result<()> {
+    pub async fn send_video_frame(
+        &mut self,
+        data: &[u8],
+        is_keyframe: bool,
+        frame_duration_ms: u32,
+    ) -> anyhow::Result<()> {
         // Split into RTP packets (max 1400 bytes for MTU)
         const MAX_PAYLOAD: usize = 1400;
         let chunks: Vec<&[u8]> = data.chunks(MAX_PAYLOAD).collect();
-        
+
         for (i, chunk) in chunks.iter().enumerate() {
             let marker = i == chunks.len() - 1; // Marker on last packet
             let payload_type = if is_keyframe { 96 } else { 97 }; // Dynamic payload types
-            
+
             self.send_rtp_packet(chunk, payload_type, marker).await?;
             self.sequence = self.sequence.wrapping_add(1);
         }
-        
+
         self.timestamp += (frame_duration_ms * self.clock_rate / 1000) as u32;
-        
+
         Ok(())
     }
 
     /// Send RTP packet.
-    async fn send_rtp_packet(&mut self, payload: &[u8], payload_type: u8, marker: bool) -> anyhow::Result<()> {
+    async fn send_rtp_packet(
+        &mut self,
+        payload: &[u8],
+        payload_type: u8,
+        marker: bool,
+    ) -> anyhow::Result<()> {
         let mut packet = BytesMut::with_capacity(12 + payload.len());
-        
+
         // RTP header
         let mut byte0 = 0x80; // Version 2
         let mut byte1 = payload_type;
         if marker {
             byte1 |= 0x80;
         }
-        
+
         packet.extend_from_slice(&[byte0, byte1]);
         packet.extend_from_slice(&self.sequence.to_be_bytes());
         packet.extend_from_slice(&self.timestamp.to_be_bytes());
         packet.extend_from_slice(&self.ssrc.to_be_bytes());
         packet.extend_from_slice(payload);
-        
+
         self.socket.send(&packet).await?;
-        
+
         Ok(())
     }
 }
@@ -375,12 +403,19 @@ mod tests {
         let mut packet = vec![0u8; 12];
         packet[0] = 0x80; // Version 2, no padding, no extension, 0 CSRC
         packet[1] = 0x60; // Payload type 96 (H.264), no marker
-        packet[2] = 0x00; packet[3] = 0x01; // Sequence number = 1
-        packet[4] = 0x00; packet[5] = 0x00; packet[6] = 0x00; packet[7] = 0x00; // Timestamp = 0
-        packet[8] = 0x12; packet[9] = 0x34; packet[10] = 0x56; packet[11] = 0x78; // SSRC = 0x12345678
+        packet[2] = 0x00;
+        packet[3] = 0x01; // Sequence number = 1
+        packet[4] = 0x00;
+        packet[5] = 0x00;
+        packet[6] = 0x00;
+        packet[7] = 0x00; // Timestamp = 0
+        packet[8] = 0x12;
+        packet[9] = 0x34;
+        packet[10] = 0x56;
+        packet[11] = 0x78; // SSRC = 0x12345678
 
         let header = parse_rtp_header(&packet).unwrap();
-        
+
         assert_eq!(header.version, 2);
         assert!(!header.padding);
         assert!(!header.extension);
@@ -397,9 +432,9 @@ mod tests {
         let stream_id = StreamId::new("rist-test");
         let payload = Bytes::from(vec![0x00, 0x00, 0x00, 0x01, 0x67]); // H.264 SPS
         let sequence = 1;
-        
+
         let fragment = rist_payload_to_fragment(&stream_id, payload.clone(), sequence);
-        
+
         assert_eq!(fragment.meta.stream_id, stream_id);
         assert_eq!(fragment.meta.sequence, sequence);
         assert!(!fragment.meta.is_keyframe); // sequence 1 not keyframe
@@ -408,15 +443,15 @@ mod tests {
     #[test]
     fn test_rist_keyframe_detection() {
         let stream_id = StreamId::new("test");
-        
+
         // sequence 0 should be keyframe
         let fragment = rist_payload_to_fragment(&stream_id, Bytes::new(), 0);
         assert!(fragment.meta.is_keyframe);
-        
+
         // sequence 30 should be keyframe
         let fragment = rist_payload_to_fragment(&stream_id, Bytes::new(), 30);
         assert!(fragment.meta.is_keyframe);
-        
+
         // sequence 15 should not be keyframe
         let fragment = rist_payload_to_fragment(&stream_id, Bytes::new(), 15);
         assert!(!fragment.meta.is_keyframe);
@@ -425,7 +460,7 @@ mod tests {
     #[test]
     fn test_rist_flow_config_default() {
         let config = RistFlowConfig::default();
-        
+
         assert_eq!(config.profile, RistProfile::Simple);
         assert_eq!(config.clock_rate, 90000);
         assert!(config.nack_enabled);

@@ -13,12 +13,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
-    Json, Router,
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
@@ -27,8 +27,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::fragment::{Fragment, FragmentBroadcasterRegistry, FragmentMeta, StreamId};
+use mediaedge_config::types::{TurnServerConfig, WhipConfig};
 use mediaedge_observability::MetricsRegistry;
-use mediaedge_config::types::{WhipConfig, TurnServerConfig};
 
 /// WHIP server state.
 #[derive(Clone)]
@@ -99,15 +99,19 @@ async fn whip_offer_handler(
     Json(payload): Json<WhipOfferRequest>,
 ) -> Result<Response, StatusCode> {
     // Validate content type
-    if !headers.get("content-type").map(|v| v.to_str().unwrap_or("").contains("application/sdp")).unwrap_or(false) {
+    if !headers
+        .get("content-type")
+        .map(|v| v.to_str().unwrap_or("").contains("application/sdp"))
+        .unwrap_or(false)
+    {
         warn!("WHIP offer missing application/sdp content-type");
         return Err(StatusCode::BAD_REQUEST);
     }
 
     // Generate stream ID if not provided
-    let stream_id = payload.stream_id.unwrap_or_else(|| {
-        format!("whip-{}", uuid::Uuid::new_v4().simple())
-    });
+    let stream_id = payload
+        .stream_id
+        .unwrap_or_else(|| format!("whip-{}", uuid::Uuid::new_v4().simple()));
 
     info!("WHIP offer received for stream: {}", stream_id);
 
@@ -124,7 +128,13 @@ async fn whip_offer_handler(
     let peer_connection = create_peer_connection(&state, &stream_id, offer).await?;
 
     // Generate SDP answer
-    let answer = peer_connection.lock().await.as_mut().unwrap().create_answer().await
+    let answer = peer_connection
+        .lock()
+        .await
+        .as_mut()
+        .unwrap()
+        .create_answer()
+        .await
         .map_err(|e| {
             error!("Failed to create SDP answer: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -141,11 +151,19 @@ async fn whip_offer_handler(
         ice_state: str0m::IceConnectionState::New,
         dtls_state: str0m::DtlsConnectionState::New,
     };
-    state.active_sessions.insert(stream_id.clone(), session_info);
+    state
+        .active_sessions
+        .insert(stream_id.clone(), session_info);
 
     // Update metrics
-    state.metrics.counter("ingest_whip_sessions_total", "Total WHIP sessions").increment(1);
-    state.metrics.counter("ingest_active_streams", "Active ingest streams").increment(1);
+    state
+        .metrics
+        .counter("ingest_whip_sessions_total", "Total WHIP sessions")
+        .increment(1);
+    state
+        .metrics
+        .counter("ingest_active_streams", "Active ingest streams")
+        .increment(1);
 
     // Return SDP answer
     let response = WhipAnswerResponse {
@@ -171,19 +189,17 @@ async fn whip_ice_handler(
 
     let session = session.unwrap();
     let mut pc = session.peer_connection.lock().await;
-    
-    if let Some(ref mut pc) = *pc {
-        let candidate = IceCandidate::parse(&payload.candidate)
-            .map_err(|e| {
-                error!("Failed to parse ICE candidate: {}", e);
-                StatusCode::BAD_REQUEST
-            })?;
 
-        pc.add_ice_candidate(candidate).await
-            .map_err(|e| {
-                error!("Failed to add ICE candidate: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    if let Some(ref mut pc) = *pc {
+        let candidate = IceCandidate::parse(&payload.candidate).map_err(|e| {
+            error!("Failed to parse ICE candidate: {}", e);
+            StatusCode::BAD_REQUEST
+        })?;
+
+        pc.add_ice_candidate(candidate).await.map_err(|e| {
+            error!("Failed to add ICE candidate: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     Ok(StatusCode::OK.into_response())
@@ -221,19 +237,16 @@ async fn create_peer_connection(
         ..Default::default()
     };
 
-    let mut pc = str0m::PeerConnection::new(config)
-        .await
-        .map_err(|e| {
-            error!("Failed to create peer connection: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let mut pc = str0m::PeerConnection::new(config).await.map_err(|e| {
+        error!("Failed to create peer connection: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // Set remote description (offer)
-    pc.set_remote_description(offer).await
-        .map_err(|e| {
-            error!("Failed to set remote description: {}", e);
-            StatusCode::BAD_REQUEST
-        })?;
+    pc.set_remote_description(offer).await.map_err(|e| {
+        error!("Failed to set remote description: {}", e);
+        StatusCode::BAD_REQUEST
+    })?;
 
     // Set up media handlers
     setup_media_handlers(&mut pc, stream_id, state.clone()).await?;
@@ -251,7 +264,7 @@ async fn setup_media_handlers(
     pc.on_track(move |track| {
         let stream_id = stream_id.to_string();
         let state = state.clone();
-        
+
         tokio::spawn(async move {
             if track.kind() == str0m::media::MediaKind::Video {
                 handle_video_track(track, &stream_id, state).await;
@@ -285,37 +298,49 @@ async fn handle_video_track(
     state: Arc<WhipServerState>,
 ) {
     info!("WHIP video track started for stream: {}", stream_id);
-    
+
     let stream_id_obj = StreamId::new(stream_id.to_string());
     let mut frame_count = 0u64;
 
     while let Some(sample) = track.recv().await {
         if let str0m::media::MediaSample::Video(frame) = sample {
             frame_count += 1;
-            
+
             // Convert to fragment
             let fragment = whip_video_frame_to_fragment(&stream_id_obj, frame, frame_count);
-            
+
             // Ingest into fragment registry
             state.registry.ingest(stream_id_obj.clone(), fragment);
-            
+
             // Update session stats
             if let Some(mut session) = state.active_sessions.get_mut(stream_id) {
                 session.bytes_received += frame.data.len() as u64;
                 session.video_frames += 1;
             }
-            
+
             // Update metrics
-            state.metrics.counter("ingest_whip_video_frames_total", "WHIP video frames received").increment(1);
-            state.metrics.counter("ingest_whip_bytes_total", "WHIP bytes received").increment(frame.data.len() as u64);
+            state
+                .metrics
+                .counter(
+                    "ingest_whip_video_frames_total",
+                    "WHIP video frames received",
+                )
+                .increment(1);
+            state
+                .metrics
+                .counter("ingest_whip_bytes_total", "WHIP bytes received")
+                .increment(frame.data.len() as u64);
         }
     }
 
     info!("WHIP video track ended for stream: {}", stream_id);
-    
+
     // Cleanup
     state.active_sessions.remove(stream_id);
-    state.metrics.counter("ingest_active_streams", "Active ingest streams").decrement(1);
+    state
+        .metrics
+        .counter("ingest_active_streams", "Active ingest streams")
+        .decrement(1);
 }
 
 /// Handle incoming audio track.
@@ -325,28 +350,34 @@ async fn handle_audio_track(
     state: Arc<WhipServerState>,
 ) {
     info!("WHIP audio track started for stream: {}", stream_id);
-    
+
     let stream_id_obj = StreamId::new(stream_id.to_string());
     let mut frame_count = 0u64;
 
     while let Some(sample) = track.recv().await {
         if let str0m::media::MediaSample::Audio(frame) = sample {
             frame_count += 1;
-            
+
             // Convert to fragment
             let fragment = whip_audio_frame_to_fragment(&stream_id_obj, frame, frame_count);
-            
+
             // Ingest into fragment registry
             state.registry.ingest(stream_id_obj.clone(), fragment);
-            
+
             // Update session stats
             if let Some(mut session) = state.active_sessions.get_mut(stream_id) {
                 session.bytes_received += frame.data.len() as u64;
                 session.audio_frames += 1;
             }
-            
+
             // Update metrics
-            state.metrics.counter("ingest_whip_audio_frames_total", "WHIP audio frames received").increment(1);
+            state
+                .metrics
+                .counter(
+                    "ingest_whip_audio_frames_total",
+                    "WHIP audio frames received",
+                )
+                .increment(1);
         }
     }
 
@@ -388,7 +419,7 @@ fn whip_audio_frame_to_fragment(
             sequence,
             timestamp: Duration::from_millis(frame.timestamp.as_millis() as u64),
             duration: Duration::from_millis(20), // ~20ms per Opus frame
-            is_keyframe: true, // Audio frames are effectively keyframes
+            is_keyframe: true,                   // Audio frames are effectively keyframes
             size: frame.data.len(),
             ingest_time: Instant::now(),
         },
@@ -415,10 +446,14 @@ impl WhipClient {
     }
 
     /// Start publishing with local tracks.
-    pub async fn start_publishing(&self, video_track: Option<str0m::media::MediaStreamTrack>, audio_track: Option<str0m::media::MediaStreamTrack>) -> anyhow::Result<()> {
+    pub async fn start_publishing(
+        &self,
+        video_track: Option<str0m::media::MediaStreamTrack>,
+        audio_track: Option<str0m::media::MediaStreamTrack>,
+    ) -> anyhow::Result<()> {
         // Create peer connection
         let mut pc = str0m::PeerConnection::new(Default::default()).await?;
-        
+
         // Add tracks
         if let Some(track) = video_track {
             pc.add_track(track).await?;
@@ -444,7 +479,7 @@ impl WhipClient {
         }
 
         let answer: WhipAnswerResponse = response.json().await?;
-        
+
         // Set remote description (answer)
         let answer_sdp = SessionDescription::parse(&answer.sdp)?;
         pc.set_remote_description(answer_sdp).await?;
@@ -474,7 +509,7 @@ mod tests {
             sdp: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n...".to_string(),
             stream_id: Some("test-stream".to_string()),
         };
-        
+
         assert_eq!(request.stream_id, Some("test-stream".to_string()));
     }
 
@@ -484,7 +519,7 @@ mod tests {
             sdp: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n...".to_string(),
             stream_id: "test-stream".to_string(),
         };
-        
+
         assert_eq!(response.stream_id, "test-stream");
     }
 
@@ -495,7 +530,7 @@ mod tests {
             sdp_mid: "0".to_string(),
             sdp_mline_index: 0,
         };
-        
+
         assert_eq!(request.sdp_mline_index, 0);
     }
 
@@ -507,9 +542,9 @@ mod tests {
             timestamp: std::time::Duration::from_millis(1000),
             is_keyframe: true,
         };
-        
+
         let fragment = whip_video_frame_to_fragment(&stream_id, frame, 1);
-        
+
         assert_eq!(fragment.meta.stream_id, stream_id);
         assert_eq!(fragment.meta.sequence, 1);
         assert!(fragment.meta.is_keyframe);

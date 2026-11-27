@@ -5,7 +5,7 @@
 
 #![warn(missing_docs)]
 
-pub mod sync;
 pub mod cache;
-pub mod queue;
 pub mod conflict;
+pub mod queue;
+pub mod sync;

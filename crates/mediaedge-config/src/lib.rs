@@ -14,55 +14,50 @@
 
 #![warn(missing_docs)]
 
-pub mod types;
+pub mod hot_reload;
 pub mod loader;
 pub mod secrets;
-pub mod hot_reload;
+pub mod types;
 
 // Re-export commonly used types
 pub use types::{
-    ServiceConfig, ServerConfig, TlsConfig, AuthConfig, AuthMode, JwtConfig,
-    StaticTokenConfig, WebhookAuthConfig, MetricsConfig, OtlpConfig, TracingConfig,
-    JaegerConfig, RateLimitConfig, RedisConfig, RedisTlsConfig, EtcdConfig,
-    EtcdTlsConfig, NatsConfig, NatsTlsConfig, NatsReconnectConfig, StorageConfig,
-    FsStorageConfig, S3StorageConfig, S3TlsConfig, AzblobStorageConfig,
-    GcsStorageConfig, MemoryStorageConfig, GatewayConfig, UpstreamConfig,
-    GatewayProtocolsConfig, RtmpConfig, SrtConfig, RistConfig, WhipConfig,
-    TurnServerConfig, HttpProtocolConfig, AdminConfig, StorageNodeConfig,
-    StorageReplicationConfig, ErasureConfig, ArchiveConfig, TieringConfig,
-    TierConfig, CacheConfig, EdgeNodeConfig, OriginConfig, EdgeCacheConfig,
-    MeshConfig, IceServerConfig, SignedUrlConfig, ReplicationCoordinatorConfig,
-    PlannerConfig, FecConfig, MeshReplicationConfig, MediaProcessorConfig,
-    TranscodingConfig, BitratePreset, RecordingConfig, RecordingSchedule,
-    VodConfig, ThumbnailConfig, SpriteConfig, CaptionConfig, AiConfig,
-    ModerationConfig, HighlightConfig, AnomalyConfig,
-    FederationConfig, FederationLinkConfig,
+    AdminConfig, AiConfig, AnomalyConfig, ArchiveConfig, AuthConfig, AuthMode, AzblobStorageConfig,
+    BitratePreset, CacheConfig, CaptionConfig, EdgeCacheConfig, EdgeNodeConfig, ErasureConfig,
+    EtcdConfig, EtcdTlsConfig, FecConfig, FederationConfig, FederationLinkConfig, FsStorageConfig,
+    GatewayConfig, GatewayProtocolsConfig, GcsStorageConfig, HighlightConfig, HttpProtocolConfig,
+    IceServerConfig, JaegerConfig, JwtConfig, MediaProcessorConfig, MemoryStorageConfig,
+    MeshConfig, MeshReplicationConfig, MetricsConfig, ModerationConfig, NatsConfig,
+    NatsReconnectConfig, NatsTlsConfig, OriginConfig, OtlpConfig, PlannerConfig, RateLimitConfig,
+    RecordingConfig, RecordingSchedule, RedisConfig, RedisTlsConfig, ReplicationCoordinatorConfig,
+    RistConfig, RtmpConfig, S3StorageConfig, S3TlsConfig, ServerConfig, ServiceConfig,
+    SignedUrlConfig, SpriteConfig, SrtConfig, StaticTokenConfig, StorageConfig, StorageNodeConfig,
+    StorageReplicationConfig, ThumbnailConfig, TierConfig, TieringConfig, TlsConfig, TracingConfig,
+    TranscodingConfig, TurnServerConfig, UpstreamConfig, VodConfig, WebhookAuthConfig, WhipConfig,
 };
 
 pub use loader::{
-    ConfigLoader, LoadedConfig, ConfigMeta, ConfigSubscription, ConfigError,
-    ConfigResult, load_service_config, generate_json_schema, generate_openapi_schema,
-    validate_config_file, merge_config_files,
+    ConfigError, ConfigLoader, ConfigMeta, ConfigResult, ConfigSubscription, LoadedConfig,
+    generate_json_schema, generate_openapi_schema, load_service_config, merge_config_files,
+    validate_config_file,
 };
 
 pub use secrets::{
-    SecretsManager, SecretsManagerConfig, EncryptedSecret, SecretValue, SecretSource,
-    AgeConfig, KmsConfig, SecretsError, SecretsResult,
-    generate_age_keypair, encrypt_file_age, decrypt_file_age,
-    cli::encrypt_value, cli::decrypt_value,
+    AgeConfig, EncryptedSecret, KmsConfig, SecretSource, SecretValue, SecretsError, SecretsManager,
+    SecretsManagerConfig, SecretsResult, cli::decrypt_value, cli::encrypt_value, decrypt_file_age,
+    encrypt_file_age, generate_age_keypair,
 };
 
 pub use hot_reload::{
-    HotReloadState, hot_reload_routes, spawn_sighup_handler, spawn_config_validator,
-    graceful_shutdown, spawn_file_watcher,
+    HotReloadState, graceful_shutdown, hot_reload_routes, spawn_config_validator,
+    spawn_file_watcher, spawn_sighup_handler,
 };
 
 /// Prelude for convenient imports.
 pub mod prelude {
     pub use crate::{
-        ConfigLoader, ConfigError, ConfigResult, LoadedConfig, ConfigMeta,
-        ServiceConfig, ServerConfig, AuthConfig, MetricsConfig, TracingConfig,
-        SecretsManager, SecretsManagerConfig, EncryptedSecret, SecretsError, SecretsResult,
+        AuthConfig, ConfigError, ConfigLoader, ConfigMeta, ConfigResult, EncryptedSecret,
+        LoadedConfig, MetricsConfig, SecretsError, SecretsManager, SecretsManagerConfig,
+        SecretsResult, ServerConfig, ServiceConfig, TracingConfig,
     };
 }
 

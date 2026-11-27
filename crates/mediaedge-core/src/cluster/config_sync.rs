@@ -38,9 +38,9 @@ impl Default for ConfigSyncConfig {
 pub struct ConfigValue {
     pub key: String,
     pub value: String,
-    pub version: u64,          // Logical timestamp (LWW)
-    pub updated_by: String,    // Node ID
-    pub updated_at: u64,       // Unix timestamp
+    pub version: u64,       // Logical timestamp (LWW)
+    pub updated_by: String, // Node ID
+    pub updated_at: u64,    // Unix timestamp
     pub source: ConfigSource,
 }
 
@@ -67,9 +67,18 @@ pub struct ConfigSyncManager {
 /// Config sync events.
 #[derive(Debug, Clone)]
 pub enum ConfigSyncEvent {
-    Updated { key: String, value: ConfigValue },
-    Removed { key: String },
-    Conflict { key: String, local: ConfigValue, remote: ConfigValue },
+    Updated {
+        key: String,
+        value: ConfigValue,
+    },
+    Removed {
+        key: String,
+    },
+    Conflict {
+        key: String,
+        local: ConfigValue,
+        remote: ConfigValue,
+    },
 }
 
 impl ConfigSyncManager {
@@ -114,7 +123,7 @@ impl ConfigSyncManager {
     /// Set a configuration value locally.
     pub async fn set(&self, key: &str, value: &str, source: ConfigSource) -> anyhow::Result<()> {
         let node_id = self.get_node_id().await?;
-        
+
         let mut current_version = 0;
         if let Some(existing) = self.local_config.get(key) {
             current_version = existing.version;
@@ -133,8 +142,10 @@ impl ConfigSyncManager {
         if let Some(existing) = self.local_config.get(key) {
             if existing.version > config_value.version {
                 // Local version is newer, don't overwrite
-                warn!("Config conflict for {}: local version {} > new version {}", 
-                    key, existing.version, config_value.version);
+                warn!(
+                    "Config conflict for {}: local version {} > new version {}",
+                    key, existing.version, config_value.version
+                );
                 let _ = self.event_tx.try_send(ConfigSyncEvent::Conflict {
                     key: key.to_string(),
                     local: existing.clone(),
@@ -144,15 +155,18 @@ impl ConfigSyncManager {
             }
         }
 
-        self.local_config.insert(key.to_string(), config_value.clone());
-        
+        self.local_config
+            .insert(key.to_string(), config_value.clone());
+
         let _ = self.event_tx.try_send(ConfigSyncEvent::Updated {
             key: key.to_string(),
             value: config_value,
         });
 
-        self.metrics.counter("config_sync_updates_total", "Config sync updates").increment(1);
-        
+        self.metrics
+            .counter("config_sync_updates_total", "Config sync updates")
+            .increment(1);
+
         Ok(())
     }
 
@@ -163,14 +177,21 @@ impl ConfigSyncManager {
 
     /// Get all configuration values.
     pub fn get_all(&self) -> Vec<ConfigValue> {
-        self.local_config.iter().map(|e| e.value().clone()).collect()
+        self.local_config
+            .iter()
+            .map(|e| e.value().clone())
+            .collect()
     }
 
     /// Remove a configuration value.
     pub async fn remove(&self, key: &str) -> anyhow::Result<()> {
         if self.local_config.remove(key).is_some() {
-            let _ = self.event_tx.try_send(ConfigSyncEvent::Removed { key: key.to_string() });
-            self.metrics.counter("config_sync_removals_total", "Config sync removals").increment(1);
+            let _ = self.event_tx.try_send(ConfigSyncEvent::Removed {
+                key: key.to_string(),
+            });
+            self.metrics
+                .counter("config_sync_removals_total", "Config sync removals")
+                .increment(1);
         }
         Ok(())
     }
@@ -188,7 +209,7 @@ impl ConfigSyncManager {
             };
 
             let mut should_update = false;
-            
+
             if let Some(local) = self.local_config.get(&entry.key) {
                 // LWW: higher version wins
                 if entry.version > local.version {
@@ -212,13 +233,18 @@ impl ConfigSyncManager {
             if should_update {
                 let key = entry.key.clone();
                 self.local_config.insert(key.clone(), remote_value.clone());
-                
+
                 let _ = self.event_tx.try_send(ConfigSyncEvent::Updated {
                     key,
                     value: remote_value,
                 });
 
-                self.metrics.counter("config_sync_gossip_updates_total", "Config sync gossip updates").increment(1);
+                self.metrics
+                    .counter(
+                        "config_sync_gossip_updates_total",
+                        "Config sync gossip updates",
+                    )
+                    .increment(1);
             }
         }
     }
@@ -232,7 +258,7 @@ impl ConfigSyncManager {
 
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(config.sync_interval_secs));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -274,7 +300,9 @@ impl ConfigSyncManager {
     /// Get config sync stats.
     pub fn stats(&self) -> ConfigSyncStats {
         let total = self.local_config.len();
-        let by_source = self.local_config.iter()
+        let by_source = self
+            .local_config
+            .iter()
             .fold(HashMap::new(), |mut acc, entry| {
                 *acc.entry(entry.source).or_insert(0) += 1;
                 acc

@@ -5,12 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
+    Router,
     body::Body,
     extract::{Json as JsonExtract, State},
     http::StatusCode,
     response::Json,
     routing::post,
-    Router,
 };
 use dashmap::DashMap;
 use hdrhistogram::Histogram;
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
-use crate::types::{ObservabilityConfig, SloConfig, AlertThresholds};
 use crate::metrics::MetricsRegistry;
+use crate::types::{AlertThresholds, ObservabilityConfig, SloConfig};
 
 /// SLO tracker for latency objectives.
 pub struct SloTracker {
@@ -72,7 +72,8 @@ impl SloTracker {
             let histogram = Arc::new(Histogram::<u64>::new(3).expect("Failed to create histogram"));
             histograms.insert(transport.clone(), histogram);
 
-            let client_histogram = Arc::new(Histogram::<u64>::new(3).expect("Failed to create histogram"));
+            let client_histogram =
+                Arc::new(Histogram::<u64>::new(3).expect("Failed to create histogram"));
             client_histograms.insert(transport.clone(), client_histogram);
         }
 
@@ -130,10 +131,13 @@ impl SloTracker {
                 };
 
                 // Update alert state
-                let mut alert_state = self.alert_state.entry(transport.to_string()).or_insert(AlertState {
-                    last_alert: None,
-                    consecutive_violations: 0,
-                });
+                let mut alert_state =
+                    self.alert_state
+                        .entry(transport.to_string())
+                        .or_insert(AlertState {
+                            last_alert: None,
+                            consecutive_violations: 0,
+                        });
 
                 match status {
                     SloStatus::Healthy => {
@@ -142,13 +146,16 @@ impl SloTracker {
                     SloStatus::Warning | SloStatus::Critical => {
                         alert_state.consecutive_violations += 1;
                         let now = chrono::Utc::now();
-                        
+
                         // Alert on first violation or every 10 violations
-                        if alert_state.consecutive_violations == 1 || 
-                           alert_state.consecutive_violations % 10 == 0 {
+                        if alert_state.consecutive_violations == 1
+                            || alert_state.consecutive_violations % 10 == 0
+                        {
                             alert_state.last_alert = Some(now);
-                            warn!("SLO {} for {}: p99={:.2}ms target={}ms", 
-                                status as u8, transport, p99, target);
+                            warn!(
+                                "SLO {} for {}: p99={:.2}ms target={}ms",
+                                status as u8, transport, p99, target
+                            );
                         }
                     }
                 }
@@ -156,7 +163,11 @@ impl SloTracker {
                 // Broadcast update
                 let p50 = percentile(histogram, 50.0) as f64 / 1000.0;
                 let p95 = percentile(histogram, 95.0) as f64 / 1000.0;
-                let error_budget = if p99 >= target { 0.0 } else { 1.0 - p99 / target };
+                let error_budget = if p99 >= target {
+                    0.0
+                } else {
+                    1.0 - p99 / target
+                };
 
                 let update = SloUpdate {
                     transport: transport.to_string(),
@@ -183,7 +194,7 @@ impl SloTracker {
             if let Some(histogram) = self.histograms.get(transport) {
                 let target_ms = *self.config.targets.get(transport).unwrap_or(&0);
                 let status = self.calculate_status(transport, histogram, target_ms);
-                
+
                 if status == SloStatus::Critical {
                     overall = SloStatus::Critical;
                 } else if status == SloStatus::Warning && overall == SloStatus::Healthy {
@@ -193,18 +204,25 @@ impl SloTracker {
                 let p50 = percentile(histogram, 50.0) as f64 / 1000.0;
                 let p95 = percentile(histogram, 95.0) as f64 / 1000.0;
                 let p99 = percentile(histogram, 99.0) as f64 / 1000.0;
-                let error_budget = if p99 >= target_ms as f64 { 0.0 } else { 1.0 - p99 / target_ms as f64 };
+                let error_budget = if p99 >= target_ms as f64 {
+                    0.0
+                } else {
+                    1.0 - p99 / target_ms as f64
+                };
 
-                transports.insert(transport.clone(), TransportSloStatus {
-                    transport: transport.clone(),
-                    target_ms,
-                    p50_ms: p50,
-                    p95_ms: p95,
-                    p99_ms: p99,
-                    status,
-                    error_budget_remaining: error_budget,
-                    sample_count: histogram.len() as u64,
-                });
+                transports.insert(
+                    transport.clone(),
+                    TransportSloStatus {
+                        transport: transport.clone(),
+                        target_ms,
+                        p50_ms: p50,
+                        p95_ms: p95,
+                        p99_ms: p99,
+                        status,
+                        error_budget_remaining: error_budget,
+                        sample_count: histogram.len() as u64,
+                    },
+                );
             }
         }
 
@@ -215,7 +233,12 @@ impl SloTracker {
         }
     }
 
-    fn calculate_status(&self, transport: &str, histogram: &Histogram<u64>, target_ms: u64) -> SloStatus {
+    fn calculate_status(
+        &self,
+        transport: &str,
+        histogram: &Histogram<u64>,
+        target_ms: u64,
+    ) -> SloStatus {
         let p99 = percentile(histogram, 99.0) as f64 / 1000.0;
         let target = target_ms as f64;
 
@@ -293,9 +316,15 @@ pub struct TransportSloStatus {
 pub fn slo_routes(tracker: Arc<SloTracker>) -> Router {
     Router::new()
         .route("/api/v1/slo/client-sample", post(client_sample_handler))
-        .route("/api/v1/slo/client-sample/batch", post(client_sample_batch_handler))
+        .route(
+            "/api/v1/slo/client-sample/batch",
+            post(client_sample_batch_handler),
+        )
         .route("/api/v1/slo/status", get(slo_status_handler))
-        .route("/api/v1/slo/status/:transport", get(transport_slo_status_handler))
+        .route(
+            "/api/v1/slo/status/:transport",
+            get(transport_slo_status_handler),
+        )
         .route("/api/v1/slo/stream", get(slo_stream_handler))
         .with_state(tracker)
 }
@@ -315,13 +344,13 @@ async fn client_sample_batch_handler(
     JsonExtract(batch): JsonExtract<ClientSampleBatch>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     tracker.record_client_samples(batch.samples);
-    Ok(Json(json!({ "status": "ok", "count": batch.samples.len() })))
+    Ok(Json(
+        json!({ "status": "ok", "count": batch.samples.len() }),
+    ))
 }
 
 /// GET /api/v1/slo/status - Overall SLO status.
-async fn slo_status_handler(
-    State(tracker): State<Arc<SloTracker>>,
-) -> Json<SloStatusReport> {
+async fn slo_status_handler(State(tracker): State<Arc<SloTracker>>) -> Json<SloStatusReport> {
     Json(tracker.get_status())
 }
 
@@ -331,7 +360,9 @@ async fn transport_slo_status_handler(
     axum::extract::Path(transport): axum::extract::Path<String>,
 ) -> Result<Json<TransportSloStatus>, StatusCode> {
     let report = tracker.get_status();
-    report.transports.get(&transport)
+    report
+        .transports
+        .get(&transport)
         .cloned()
         .map(Json)
         .ok_or(StatusCode::NOT_FOUND)
@@ -342,7 +373,7 @@ async fn slo_stream_handler(
     State(tracker): State<Arc<SloTracker>>,
 ) -> Sse<impl futures::Stream<Item = Result<Event, std::io::Error>>> {
     let mut receiver = tracker.subscribe();
-    
+
     let stream = async_stream::stream! {
         while let Ok(update) = receiver.recv().await {
             let data = serde_json::to_string(&update).unwrap_or_default();
@@ -363,7 +394,10 @@ pub struct SloEvaluator {
 
 impl SloEvaluator {
     pub fn new(tracker: Arc<SloTracker>, metrics_registry: Arc<MetricsRegistry>) -> Self {
-        Self { tracker, metrics_registry }
+        Self {
+            tracker,
+            metrics_registry,
+        }
     }
 
     /// Evaluate and return SLO status.
@@ -443,7 +477,7 @@ mod tests {
         };
 
         tracker.record_client_sample(&sample.transport, sample.latency);
-        
+
         let client_hist = tracker.get_client_histogram("whep");
         assert!(client_hist.is_some());
         assert_eq!(client_hist.unwrap().len(), 1);
@@ -455,11 +489,11 @@ mod tests {
         for i in 1..=100 {
             histogram.record(i).unwrap();
         }
-        
+
         let p50 = percentile(&histogram, 50.0);
         let p95 = percentile(&histogram, 95.0);
         let p99 = percentile(&histogram, 99.0);
-        
+
         assert!(p50 >= 45 && p50 <= 55);
         assert!(p95 >= 90 && p95 <= 100);
         assert!(p99 >= 95 && p99 <= 100);

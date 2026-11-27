@@ -311,7 +311,13 @@ pub struct SloConfig {
 }
 
 fn default_transports() -> Vec<String> {
-    vec!["hls".to_string(), "dash".to_string(), "ws".to_string(), "whep".to_string(), "moq".to_string()]
+    vec![
+        "hls".to_string(),
+        "dash".to_string(),
+        "ws".to_string(),
+        "whep".to_string(),
+        "moq".to_string(),
+    ]
 }
 
 fn default_client_sample_path() -> String {
@@ -444,7 +450,8 @@ impl Default for MetricsConfig {
             prefix: "mediaedge".to_string(),
             histogram_buckets: None,
             default_buckets: vec![
-                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0,
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0,
+                100.0,
             ],
         }
     }
@@ -466,15 +473,21 @@ impl Default for LoggingConfig {
 impl Default for SloConfig {
     fn default() -> Self {
         let mut targets = std::collections::HashMap::new();
-        targets.insert("hls".to_string(), 2000);   // 2s
-        targets.insert("dash".to_string(), 2000);  // 2s
-        targets.insert("ws".to_string(), 500);     // 500ms
-        targets.insert("whep".to_string(), 500);   // 500ms
-        targets.insert("moq".to_string(), 100);    // 100ms
+        targets.insert("hls".to_string(), 2000); // 2s
+        targets.insert("dash".to_string(), 2000); // 2s
+        targets.insert("ws".to_string(), 500); // 500ms
+        targets.insert("whep".to_string(), 500); // 500ms
+        targets.insert("moq".to_string(), 100); // 100ms
 
         Self {
             enabled: true,
-            transports: vec!["hls".to_string(), "dash".to_string(), "ws".to_string(), "whep".to_string(), "moq".to_string()],
+            transports: vec![
+                "hls".to_string(),
+                "dash".to_string(),
+                "ws".to_string(),
+                "whep".to_string(),
+                "moq".to_string(),
+            ],
             targets,
             client_sample_path: "/api/v1/slo/client-sample".to_string(),
             client_sample_max_size: 65536,
@@ -485,14 +498,13 @@ impl Default for SloConfig {
 }
 
 impl Default for FanoutConfig {
-        fn default() -> Self {
-            Self {
-                enabled: true,
-                prometheus: true,
-                otlp: false,
-                jaeger: false,
-                custom: Vec::new(),
-            }
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prometheus: true,
+            otlp: false,
+            jaeger: false,
+            custom: Vec::new(),
         }
     }
 }
@@ -656,6 +668,4 @@ pub struct EscalationLevelConfig {
     /// Message template.
     #[serde(default)]
     pub message_template: String,
-}
-    }
 }

@@ -96,9 +96,9 @@ pub struct GossipPayload {
 /// Ownership entry for broadcast ownership.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnershipEntry {
-    pub key: String,           // e.g., "broadcast:stream-123"
+    pub key: String, // e.g., "broadcast:stream-123"
     pub owner: NodeId,
-    pub lease_expires: u64,    // Unix timestamp
+    pub lease_expires: u64, // Unix timestamp
     pub incarnation: u64,
     pub metadata: HashMap<String, String>,
 }
@@ -108,9 +108,9 @@ pub struct OwnershipEntry {
 pub struct ConfigEntry {
     pub key: String,
     pub value: String,
-    pub version: u64,          // Logical timestamp (LWW)
+    pub version: u64, // Logical timestamp (LWW)
     pub updated_by: NodeId,
-    pub updated_at: u64,       // Unix timestamp
+    pub updated_at: u64, // Unix timestamp
 }
 
 /// Gossip events for external consumers.
@@ -120,8 +120,15 @@ pub enum GossipEvent {
     NodeLeft(NodeId),
     NodeFailed(NodeId),
     NodeRecovered(NodeId),
-    OwnershipChanged { key: String, old_owner: Option<NodeId>, new_owner: NodeId },
-    ConfigChanged { key: String, value: String },
+    OwnershipChanged {
+        key: String,
+        old_owner: Option<NodeId>,
+        new_owner: NodeId,
+    },
+    ConfigChanged {
+        key: String,
+        value: String,
+    },
 }
 
 /// Gossip protocol configuration.
@@ -185,7 +192,7 @@ impl GossipProtocol {
 
         let socket_addr = format!("{}:{}", bind_address, cluster_port).parse::<SocketAddr>()?;
         let socket = Arc::new(UdpSocket::bind(socket_addr).await?);
-        
+
         let local_state = NodeState {
             node_id: node_id.clone(),
             address: socket_addr,
@@ -212,7 +219,9 @@ impl GossipProtocol {
         };
 
         // Register self
-        protocol.nodes.insert(node_id.clone(), protocol.local_state.read().clone());
+        protocol
+            .nodes
+            .insert(node_id.clone(), protocol.local_state.read().clone());
 
         Ok(protocol)
     }
@@ -224,7 +233,10 @@ impl GossipProtocol {
 
     /// Start the gossip protocol.
     pub async fn start(&self) -> anyhow::Result<()> {
-        info!("Starting gossip protocol for node: {}", self.config.node_id.0);
+        info!(
+            "Starting gossip protocol for node: {}",
+            self.config.node_id.0
+        );
 
         // Start UDP listener
         let socket = self.socket.clone();
@@ -232,7 +244,7 @@ impl GossipProtocol {
         let local_state = self.local_state.clone();
         let metrics = self.metrics.clone();
         let shutdown_rx = self.shutdown_tx.subscribe();
-        
+
         tokio::spawn(async move {
             Self::udp_listener(socket, nodes, local_state, metrics, shutdown_rx).await;
         });
@@ -247,7 +259,16 @@ impl GossipProtocol {
         let shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
-            Self::gossip_loop(nodes, local_state, sequence, config, event_tx, metrics, shutdown_rx).await;
+            Self::gossip_loop(
+                nodes,
+                local_state,
+                sequence,
+                config,
+                event_tx,
+                metrics,
+                shutdown_rx,
+            )
+            .await;
         });
 
         // Start failure detection
@@ -259,7 +280,15 @@ impl GossipProtocol {
         let shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
-            Self::failure_detection_loop(nodes, local_state, config, event_tx, metrics, shutdown_rx).await;
+            Self::failure_detection_loop(
+                nodes,
+                local_state,
+                config,
+                event_tx,
+                metrics,
+                shutdown_rx,
+            )
+            .await;
         });
 
         // Join seed nodes
@@ -274,37 +303,41 @@ impl GossipProtocol {
     pub async fn stop(&self) -> anyhow::Result<()> {
         info!("Stopping gossip protocol");
         let _ = self.shutdown_tx.send(true);
-        
+
         // Mark self as left
         {
             let mut state = self.local_state.write();
             state.status = NodeStatus::Left;
             state.incarnation += 1;
         }
-        
+
         Ok(())
     }
 
     /// Join the cluster via a seed node.
     async fn join(&self, seed: SocketAddr) -> anyhow::Result<()> {
         info!("Joining cluster via seed: {}", seed);
-        
+
         let ping = GossipMessage::Ping {
             source: self.config.node_id.clone(),
             target: NodeId::new(seed.to_string()), // Will be resolved by seed
-            sequence: self.sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            sequence: self
+                .sequence
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             payload: self.build_payload().await,
         };
 
         let data = bincode::serialize(&ping)?;
         self.socket.send_to(&data, seed).await?;
-        
+
         Ok(())
     }
 
     /// Build gossip payload with current state.
     async fn build_payload(&self) -> GossipPayload {
-        let nodes: Vec<NodeState> = self.nodes.iter()
+        let nodes: Vec<NodeState> = self
+            .nodes
+            .iter()
             .map(|e| e.value().clone())
             .take(self.config.max_payload_nodes)
             .collect();
@@ -364,10 +397,15 @@ impl GossipProtocol {
         metrics: &Arc<MetricsRegistry>,
     ) {
         match msg {
-            GossipMessage::Ping { source, target, sequence, payload } => {
+            GossipMessage::Ping {
+                source,
+                target,
+                sequence,
+                payload,
+            } => {
                 // Update source node state
                 Self::update_node_state(nodes, &source, &payload, metrics).await;
-                
+
                 // Send ack
                 let ack = GossipMessage::Ack {
                     source: local_state.read().node_id.clone(),
@@ -377,15 +415,30 @@ impl GossipProtocol {
                 };
                 // In real implementation, would send back to source
             }
-            GossipMessage::PingRequest { source, target, via, sequence } => {
+            GossipMessage::PingRequest {
+                source,
+                target,
+                via,
+                sequence,
+            } => {
                 // Forward ping to target
                 // In real implementation, would forward via UDP
             }
-            GossipMessage::Ack { source, target, sequence, payload } => {
+            GossipMessage::Ack {
+                source,
+                target,
+                sequence,
+                payload,
+            } => {
                 // Update source node state
                 Self::update_node_state(nodes, &source, &payload, metrics).await;
             }
-            GossipMessage::Sync { source, nodes: sync_nodes, ownership, config } => {
+            GossipMessage::Sync {
+                source,
+                nodes: sync_nodes,
+                ownership,
+                config,
+            } => {
                 // Full state sync
                 for node in sync_nodes {
                     Self::merge_node_state(nodes, node, metrics).await;
@@ -415,26 +468,33 @@ impl GossipProtocol {
         metrics: &Arc<MetricsRegistry>,
     ) {
         let node_id = incoming.node_id.clone();
-        
+
         let mut updated = false;
-        nodes.entry(node_id.clone()).and_modify(|existing| {
-            // Higher incarnation wins
-            if incoming.incarnation > existing.incarnation ||
-               (incoming.incarnation == existing.incarnation && incoming.status as u8 > existing.status as u8) {
-                *existing = incoming.clone();
+        nodes
+            .entry(node_id.clone())
+            .and_modify(|existing| {
+                // Higher incarnation wins
+                if incoming.incarnation > existing.incarnation
+                    || (incoming.incarnation == existing.incarnation
+                        && incoming.status as u8 > existing.status as u8)
+                {
+                    *existing = incoming.clone();
+                    updated = true;
+                }
+                // Update last_seen for alive nodes
+                if incoming.status == NodeStatus::Alive {
+                    existing.last_seen = Instant::now();
+                }
+            })
+            .or_insert_with(|| {
                 updated = true;
-            }
-            // Update last_seen for alive nodes
-            if incoming.status == NodeStatus::Alive {
-                existing.last_seen = Instant::now();
-            }
-        }).or_insert_with(|| {
-            updated = true;
-            incoming
-        });
+                incoming
+            });
 
         if updated {
-            metrics.counter("gossip_state_updates_total", "Gossip state updates").increment(1);
+            metrics
+                .counter("gossip_state_updates_total", "Gossip state updates")
+                .increment(1);
         }
     }
 
@@ -456,7 +516,7 @@ impl GossipProtocol {
                     if *shutdown_rx.borrow() {
                         break;
                     }
-                    
+
                     // Select random nodes to gossip with
                     let alive_nodes: Vec<NodeState> = nodes.iter()
                         .filter(|e| e.status == NodeStatus::Alive && e.node_id != config.node_id)
@@ -472,7 +532,7 @@ impl GossipProtocol {
                     let targets: Vec<&NodeState> = alive_nodes.choose_multiple(&mut rng, config.fanout.min(alive_nodes.len())).collect();
 
                     let seq = sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    
+
                     // Build payload
                     let payload = GossipPayload {
                         nodes: nodes.iter().map(|e| e.value().clone()).take(config.max_payload_nodes).collect(),
@@ -564,7 +624,7 @@ impl GossipProtocol {
                     let alive_count = nodes.iter().filter(|e| e.status == NodeStatus::Alive).count();
                     let suspect_count = nodes.iter().filter(|e| e.status == NodeStatus::Suspect).count();
                     let dead_count = nodes.iter().filter(|e| e.status == NodeStatus::Dead).count();
-                    
+
                     metrics.gauge("gossip_nodes_alive", "Alive nodes").set(alive_count as f64);
                     metrics.gauge("gossip_nodes_suspect", "Suspect nodes").set(suspect_count as f64);
                     metrics.gauge("gossip_nodes_dead", "Dead nodes").set(dead_count as f64);
@@ -585,7 +645,8 @@ impl GossipProtocol {
 
     /// Get alive nodes.
     pub fn alive_nodes(&self) -> Vec<NodeState> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter(|e| e.status == NodeStatus::Alive)
             .map(|e| e.value().clone())
             .collect()

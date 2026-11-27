@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dashmap::DashMap;
-use moq_transport::{MoqSession, MoqTrack, MoqObject, MoqSubgroup, MoqNamespace};
-use moq_transport::coding::{Tuples, Parameter};
-use moq_transport::session::{SessionRole, SessionMode};
-use tokio::sync::{mpsc, RwLock};
+use moq_transport::coding::{Parameter, Tuples};
+use moq_transport::session::{SessionMode, SessionRole};
+use moq_transport::{MoqNamespace, MoqObject, MoqSession, MoqSubgroup, MoqTrack};
+use tokio::sync::{RwLock, mpsc};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
@@ -123,7 +123,8 @@ pub async fn run_moq_egress(
     output_root: PathBuf,
     base_url: String,
 ) -> anyhow::Result<()> {
-    let subscriber = registry.subscribe_with_buffer(stream_id.clone(), 1000)
+    let subscriber = registry
+        .subscribe_with_buffer(stream_id.clone(), 1000)
         .ok_or_else(|| anyhow::anyhow!("Failed to subscribe to stream"))?;
 
     // Define tracks for this stream
@@ -132,7 +133,10 @@ pub async fn run_moq_egress(
     let state = MoqStreamState {
         stream_id: stream_id.clone(),
         subscriber,
-        tracks: tracks.into_iter().map(|t| (t.config.namespace.clone(), t)).collect(),
+        tracks: tracks
+            .into_iter()
+            .map(|t| (t.config.namespace.clone(), t))
+            .collect(),
         session: None,
         subgroup_counter: 0,
         object_counter: 0,
@@ -183,14 +187,12 @@ fn define_default_tracks(stream_id: &StreamId) -> Vec<MoqTrackState> {
             priority: 1,
             delivery_order: DeliveryOrder::Strict,
             keyframe_interval: Duration::from_secs(2),
-            simulcast_layers: vec![
-                MoqSimulcastLayer {
-                    layer_id: "main".to_string(),
-                    track_name_suffix: "".to_string(),
-                    scale_resolution_down_by: 1.0,
-                    max_bitrate_bps: 128_000,
-                },
-            ],
+            simulcast_layers: vec![MoqSimulcastLayer {
+                layer_id: "main".to_string(),
+                track_name_suffix: "".to_string(),
+                scale_resolution_down_by: 1.0,
+                max_bitrate_bps: 128_000,
+            }],
         },
         MoqTrackConfig {
             namespace: format!("metadata/{}", stream_id.0),
@@ -202,12 +204,15 @@ fn define_default_tracks(stream_id: &StreamId) -> Vec<MoqTrackState> {
         },
     ];
 
-    track_configs.into_iter().map(|config| MoqTrackState {
-        config,
-        current_subgroup_id: 0,
-        current_object_id: 0,
-        last_keyframe_time: None,
-    }).collect()
+    track_configs
+        .into_iter()
+        .map(|config| MoqTrackState {
+            config,
+            current_subgroup_id: 0,
+            current_object_id: 0,
+            last_keyframe_time: None,
+        })
+        .collect()
 }
 
 /// Main MoQ publisher loop.
@@ -232,17 +237,17 @@ async fn run_moq_publisher_loop(
                     break;
                 }
             }
-            
+
             // Keyframe boundary - start new subgroup
             _ = keyframe_timer.tick() => {
                 start_new_subgroup(&mut state).await;
             }
-            
+
             // Flush subgroup objects periodically
             _ = subgroup_flush_timer.tick() => {
                 flush_subgroup_objects(&mut state, &metrics).await;
             }
-            
+
             // Report metrics
             _ = metrics_timer.tick() => {
                 report_moq_metrics(&state, &metrics);
@@ -272,10 +277,11 @@ async fn handle_moq_fragment(
         // Check if we need a new subgroup (keyframe)
         if fragment.meta.is_keyframe {
             let now = Instant::now();
-            let should_start_new = track_state.last_keyframe_time
+            let should_start_new = track_state
+                .last_keyframe_time
                 .map(|t| now.duration_since(t) >= track_state.config.keyframe_interval)
                 .unwrap_or(true);
-            
+
             if should_start_new {
                 start_new_subgroup(state).await;
             }
@@ -305,7 +311,9 @@ async fn handle_moq_fragment(
             }
         }
 
-        metrics.counter("egress_moq_objects_total", "MoQ objects created").increment(1);
+        metrics
+            .counter("egress_moq_objects_total", "MoQ objects created")
+            .increment(1);
     }
 }
 
@@ -315,8 +323,11 @@ async fn start_new_subgroup(state: &mut MoqStreamState) {
     if let Some(current) = state.current_subgroup.take() {
         if !current.objects.is_empty() {
             // In real implementation, would publish this subgroup
-            info!("MoQ subgroup {} complete with {} objects", 
-                current.subgroup_id, current.objects.len());
+            info!(
+                "MoQ subgroup {} complete with {} objects",
+                current.subgroup_id,
+                current.objects.len()
+            );
         }
     }
 
@@ -336,45 +347,63 @@ async fn start_new_subgroup(state: &mut MoqStreamState) {
 }
 
 /// Flush subgroup objects to MoQ transport.
-async fn flush_subgroup_objects(
-    state: &mut MoqStreamState,
-    metrics: &Arc<MetricsRegistry>,
-) {
+async fn flush_subgroup_objects(state: &mut MoqStreamState, metrics: &Arc<MetricsRegistry>) {
     if let Some(subgroup) = &mut state.current_subgroup {
-        if !subgroup.objects.is_empty() && subgroup.start_time.elapsed() > Duration::from_millis(50) {
+        if !subgroup.objects.is_empty() && subgroup.start_time.elapsed() > Duration::from_millis(50)
+        {
             // Publish objects in this subgroup
             for object in &subgroup.objects {
                 // In real implementation: session.publish_object(...)
                 state.bytes_sent += object.payload.len() as u64;
             }
-            
-            metrics.counter("egress_moq_subgroups_published_total", "MoQ subgroups published").increment(1);
-            metrics.counter("egress_moq_bytes_total", "MoQ bytes sent").increment(subgroup.objects.iter().map(|o| o.payload.len() as u64).sum());
-            
+
+            metrics
+                .counter(
+                    "egress_moq_subgroups_published_total",
+                    "MoQ subgroups published",
+                )
+                .increment(1);
+            metrics
+                .counter("egress_moq_bytes_total", "MoQ bytes sent")
+                .increment(
+                    subgroup
+                        .objects
+                        .iter()
+                        .map(|o| o.payload.len() as u64)
+                        .sum(),
+                );
+
             subgroup.is_complete = true;
         }
     }
 }
 
 /// Flush remaining objects on stream end.
-async fn flush_remaining_objects(
-    state: &mut MoqStreamState,
-    metrics: &Arc<MetricsRegistry>,
-) {
+async fn flush_remaining_objects(state: &mut MoqStreamState, metrics: &Arc<MetricsRegistry>) {
     flush_subgroup_objects(state, metrics).await;
-    
+
     // In real implementation, would send end-of-track signals
-    info!("MoQ egress finalized for stream: {} ({} bytes sent)", 
-        state.stream_id.0, state.bytes_sent);
+    info!(
+        "MoQ egress finalized for stream: {} ({} bytes sent)",
+        state.stream_id.0, state.bytes_sent
+    );
 }
 
 /// Report MoQ metrics.
 fn report_moq_metrics(state: &MoqStreamState, metrics: &Arc<MetricsRegistry>) {
-    metrics.gauge("egress_moq_active_subgroups", "Active MoQ subgroups").set(
-        if state.current_subgroup.is_some() { 1.0 } else { 0.0 }
-    );
-    metrics.gauge("egress_moq_bytes_sent_total", "Total MoQ bytes sent").set(state.bytes_sent as f64);
-    metrics.gauge("egress_moq_tracks_active", "Active MoQ tracks").set(state.tracks.len() as f64);
+    metrics
+        .gauge("egress_moq_active_subgroups", "Active MoQ subgroups")
+        .set(if state.current_subgroup.is_some() {
+            1.0
+        } else {
+            0.0
+        });
+    metrics
+        .gauge("egress_moq_bytes_sent_total", "Total MoQ bytes sent")
+        .set(state.bytes_sent as f64);
+    metrics
+        .gauge("egress_moq_tracks_active", "Active MoQ tracks")
+        .set(state.tracks.len() as f64);
 }
 
 /// MoQ subscription handling (for relays/subscribers).
@@ -420,9 +449,16 @@ impl MoqSubscriptionManager {
         self.subscriptions.remove(&key);
     }
 
-    pub fn get_subscriptions_for_track(&self, track_namespace: &str, track_name: &str) -> Vec<MoqSubscription> {
+    pub fn get_subscriptions_for_track(
+        &self,
+        track_namespace: &str,
+        track_name: &str,
+    ) -> Vec<MoqSubscription> {
         let key = format!("{}/{}", track_namespace, track_name);
-        self.subscriptions.get(&key).map(|s| vec![s.clone()]).unwrap_or_default()
+        self.subscriptions
+            .get(&key)
+            .map(|s| vec![s.clone()])
+            .unwrap_or_default()
     }
 }
 
@@ -496,14 +532,12 @@ mod tests {
             priority: 0,
             delivery_order: DeliveryOrder::KeyframeSync,
             keyframe_interval: Duration::from_secs(2),
-            simulcast_layers: vec![
-                MoqSimulcastLayer {
-                    layer_id: "h".to_string(),
-                    track_name_suffix: "_h".to_string(),
-                    scale_resolution_down_by: 1.0,
-                    max_bitrate_bps: 5_000_000,
-                },
-            ],
+            simulcast_layers: vec![MoqSimulcastLayer {
+                layer_id: "h".to_string(),
+                track_name_suffix: "_h".to_string(),
+                scale_resolution_down_by: 1.0,
+                max_bitrate_bps: 5_000_000,
+            }],
         };
 
         assert_eq!(config.priority, 0);
@@ -556,7 +590,7 @@ mod tests {
         };
 
         let announcement = MoqTrackAnnouncement::from_track_state(&track_state, 1, 5);
-        
+
         assert_eq!(announcement.namespace, "video/test");
         assert_eq!(announcement.track_name, "main");
         assert_eq!(announcement.group_id, 1);

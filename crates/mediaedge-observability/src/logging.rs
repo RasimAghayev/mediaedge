@@ -5,12 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
+    Router,
     body::Body,
     extract::State,
     http::StatusCode,
-    response::{sse::Event, Sse},
+    response::{Sse, sse::Event},
     routing::get,
-    Router,
 };
 use futures::stream::{self, Stream};
 use parking_lot::RwLock;
@@ -18,13 +18,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{info, Level, Subscriber};
+use tracing::{Level, Subscriber, info};
 use tracing_subscriber::{
     layer::{Context, Layer},
     registry::LookupSpan,
 };
 
-use crate::types::{ObservabilityConfig, LoggingConfig};
+use crate::types::{LoggingConfig, ObservabilityConfig};
 
 /// Log entry for structured logging and live tail.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +125,8 @@ where
         event.record(&mut visitor);
 
         // Extract message
-        let message = fields.remove("message")
+        let message = fields
+            .remove("message")
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default();
 
@@ -133,15 +134,18 @@ where
         let span_context = if self.include_span_context {
             ctx.lookup_current().map(|span| {
                 let ext = span.extensions();
-                let trace_id = ext.get::<opentelemetry::trace::TraceId>()
+                let trace_id = ext
+                    .get::<opentelemetry::trace::TraceId>()
                     .map(|id| id.to_string())
                     .unwrap_or_default();
-                let span_id = ext.get::<opentelemetry::trace::SpanId>()
+                let span_id = ext
+                    .get::<opentelemetry::trace::SpanId>()
                     .map(|id| id.to_string())
                     .unwrap_or_default();
-                let parent_span_id = ext.get::<opentelemetry::trace::SpanId>()
+                let parent_span_id = ext
+                    .get::<opentelemetry::trace::SpanId>()
                     .map(|id| id.to_string());
-                
+
                 SpanContext {
                     trace_id,
                     span_id,
@@ -189,12 +193,18 @@ impl tracing::field::Visit for JsonVisitor<'_> {
         self.0.insert(field.name().to_string(), json!(value));
     }
 
-    fn record_error(&mut self, field: &tracing::field::Field, value: &(dyn std::error::Error + 'static)) {
-        self.0.insert(field.name().to_string(), json!(value.to_string()));
+    fn record_error(
+        &mut self,
+        field: &tracing::field::Field,
+        value: &(dyn std::error::Error + 'static),
+    ) {
+        self.0
+            .insert(field.name().to_string(), json!(value.to_string()));
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0.insert(field.name().to_string(), json!(format!("{:?}", value)));
+        self.0
+            .insert(field.name().to_string(), json!(format!("{:?}", value)));
     }
 }
 
@@ -212,14 +222,18 @@ pub fn init_logging(config: &ObservabilityConfig) -> Arc<LogBuffer> {
     // Combine with existing subscriber (would be done in main init)
     // This is a placeholder - actual init happens in tracing.rs
 
-    info!("Logging initialized: level={}, format={}, live_tail={}", 
-        logging_config.level, logging_config.format, logging_config.live_tail);
+    info!(
+        "Logging initialized: level={}, format={}, live_tail={}",
+        logging_config.level, logging_config.format, logging_config.live_tail
+    );
 
     buffer
 }
 
 /// Build fmt layer for console output.
-fn build_fmt_layer(config: &LoggingConfig) -> Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync> {
+fn build_fmt_layer(
+    config: &LoggingConfig,
+) -> Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync> {
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
@@ -260,34 +274,33 @@ async fn live_tail_handler(
     let target_filter = params.target;
     let since = params.since;
 
-    let stream = buffer.subscribe()
-        .filter_map(move |entry| {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => return None,
-            };
+    let stream = buffer.subscribe().filter_map(move |entry| {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => return None,
+        };
 
-            // Apply filters
-            if let Some(ref level) = level_filter {
-                if entry.level != *level {
-                    return None;
-                }
+        // Apply filters
+        if let Some(ref level) = level_filter {
+            if entry.level != *level {
+                return None;
             }
-            if let Some(ref target) = target_filter {
-                if !entry.target.contains(target) {
-                    return None;
-                }
+        }
+        if let Some(ref target) = target_filter {
+            if !entry.target.contains(target) {
+                return None;
             }
-            if let Some(since) = since {
-                if entry.timestamp <= since {
-                    return None;
-                }
+        }
+        if let Some(since) = since {
+            if entry.timestamp <= since {
+                return None;
             }
+        }
 
-            // Format as SSE event
-            let data = serde_json::to_string(&entry).unwrap_or_default();
-            Some(Ok(Event::default().data(data)))
-        });
+        // Format as SSE event
+        let data = serde_json::to_string(&entry).unwrap_or_default();
+        Some(Ok(Event::default().data(data)))
+    });
 
     Sse::new(stream)
 }
@@ -338,7 +351,7 @@ mod tests {
     #[test]
     fn test_log_buffer() {
         let buffer = LogBuffer::new(100);
-        
+
         let entry = LogEntry {
             timestamp: chrono::Utc::now(),
             level: "info".to_string(),
@@ -347,10 +360,10 @@ mod tests {
             span_context: None,
             fields: json!({}),
         };
-        
+
         buffer.push(entry.clone());
         assert_eq!(buffer.size(), 1);
-        
+
         let recent = buffer.recent(10);
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].message, "test message");
@@ -359,7 +372,7 @@ mod tests {
     #[test]
     fn test_log_buffer_overflow() {
         let buffer = LogBuffer::new(3);
-        
+
         for i in 0..5 {
             let entry = LogEntry {
                 timestamp: chrono::Utc::now(),
@@ -371,7 +384,7 @@ mod tests {
             };
             buffer.push(entry);
         }
-        
+
         assert_eq!(buffer.size(), 3);
         let recent = buffer.recent(10);
         assert_eq!(recent.len(), 3);
@@ -395,7 +408,7 @@ mod tests {
             }),
             fields: json!({"key": "value"}),
         };
-        
+
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("trace123"));
         assert!(json.contains("span456"));

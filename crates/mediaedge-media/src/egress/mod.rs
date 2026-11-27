@@ -3,10 +3,10 @@
 //! This module provides a unified interface for running multiple egress protocols
 //! simultaneously for a single stream.
 
-pub mod hls;
 pub mod dash;
-pub mod whep;
+pub mod hls;
 pub mod moq;
+pub mod whep;
 pub mod ws_fmp4;
 
 use std::collections::HashMap;
@@ -49,10 +49,7 @@ impl Default for EgressConfig {
     fn default() -> Self {
         Self {
             stream_id: StreamId::new("default"),
-            protocols: vec![
-                EgressProtocol::Hls,
-                EgressProtocol::Dash,
-            ],
+            protocols: vec![EgressProtocol::Hls, EgressProtocol::Dash],
             output_root: PathBuf::from("/data/egress"),
             base_url: "https://cdn.example.com".to_string(),
             hls_config: None,
@@ -102,8 +99,11 @@ impl EgressManager {
             handles.push(handle);
         }
 
-        info!("Started {} egress protocols for stream {}", 
-            handles.len(), self.config.stream_id.0);
+        info!(
+            "Started {} egress protocols for stream {}",
+            handles.len(),
+            self.config.stream_id.0
+        );
 
         // Wait for shutdown signal
         shutdown_rx.recv().await;
@@ -113,7 +113,10 @@ impl EgressManager {
             handle.abort();
         }
 
-        info!("Egress manager stopped for stream {}", self.config.stream_id.0);
+        info!(
+            "Egress manager stopped for stream {}",
+            self.config.stream_id.0
+        );
         Ok(())
     }
 
@@ -140,7 +143,9 @@ impl EgressManager {
                         http_config,
                         output_root,
                         base_url,
-                    ).await {
+                    )
+                    .await
+                    {
                         error!("HLS egress error: {}", e);
                     }
                 })
@@ -155,7 +160,9 @@ impl EgressManager {
                         http_config,
                         output_root,
                         base_url,
-                    ).await {
+                    )
+                    .await
+                    {
                         error!("DASH egress error: {}", e);
                     }
                 })
@@ -170,7 +177,9 @@ impl EgressManager {
                         http_config,
                         output_root,
                         base_url,
-                    ).await {
+                    )
+                    .await
+                    {
                         error!("WHEP egress error: {}", e);
                     }
                 })
@@ -185,7 +194,9 @@ impl EgressManager {
                         http_config,
                         output_root,
                         base_url,
-                    ).await {
+                    )
+                    .await
+                    {
                         error!("MoQ egress error: {}", e);
                     }
                 })
@@ -200,7 +211,9 @@ impl EgressManager {
                         http_config,
                         output_root,
                         base_url,
-                    ).await {
+                    )
+                    .await
+                    {
                         error!("WebSocket fMP4 egress error: {}", e);
                     }
                 })

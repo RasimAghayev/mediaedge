@@ -4,46 +4,41 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use opentelemetry::{
-    global, trace::TracerProvider as _, KeyValue,
-};
+use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
 use opentelemetry_jaeger::Uninstall;
-use opentelemetry_otlp::{
-    WithExportConfig, WithTonicConfig, WithHttpConfig,
-};
+use opentelemetry_otlp::{WithExportConfig, WithHttpConfig, WithTonicConfig};
 use opentelemetry_sdk::{
-    trace::{self, Sampler, SpanProcessor},
     Resource,
+    trace::{self, Sampler, SpanProcessor},
 };
-use tracing::{info, warn, error, Level};
-use tracing_subscriber::{
-    layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
-};
-use tracing_subscriber::fmt::format::JsonFields;
+use tracing::{Level, error, info, warn};
 use tracing_subscriber::fmt::FormatEvent;
 use tracing_subscriber::fmt::FormatFields;
+use tracing_subscriber::fmt::format::JsonFields;
 use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::types::{ObservabilityConfig, TracingConfig, OtelConfig, JaegerConfig, BatchConfig};
 use crate::fanout::FanoutLayer;
+use crate::types::{BatchConfig, JaegerConfig, ObservabilityConfig, OtelConfig, TracingConfig};
 
 /// Initialize tracing with OpenTelemetry and fanout.
 pub fn init_tracing(config: &ObservabilityConfig) -> anyhow::Result<TracingGuard> {
     let tracing_config = &config.tracing;
-    
+
     if !tracing_config.enabled {
         info!("Tracing disabled");
-        return Ok(TracingGuard { _jaeger: None, _otel: None });
+        return Ok(TracingGuard {
+            _jaeger: None,
+            _otel: None,
+        });
     }
 
     // Build resource
     let resource = build_resource(config);
 
     // Create tracer provider with fanout
-    let (tracer_provider, jaeger_uninstall, otel_shutdown) = build_tracer_provider(
-        &tracing_config,
-        &resource,
-    )?;
+    let (tracer_provider, jaeger_uninstall, otel_shutdown) =
+        build_tracer_provider(&tracing_config, &resource)?;
 
     // Set global tracer provider
     global::set_tracer_provider(tracer_provider.clone());
@@ -54,8 +49,10 @@ pub fn init_tracing(config: &ObservabilityConfig) -> anyhow::Result<TracingGuard
     // Initialize subscriber
     tracing::subscriber::set_global_default(subscriber)?;
 
-    info!("Tracing initialized: service={}, sampling={}", 
-        config.service_name, tracing_config.sampling_ratio);
+    info!(
+        "Tracing initialized: service={}, sampling={}",
+        config.service_name, tracing_config.sampling_ratio
+    );
 
     Ok(TracingGuard {
         _jaeger: jaeger_uninstall,
@@ -88,7 +85,11 @@ fn build_resource(config: &ObservabilityConfig) -> Resource {
 fn build_tracer_provider(
     config: &TracingConfig,
     resource: &Resource,
-) -> anyhow::Result<(opentelemetry_sdk::trace::TracerProvider, Option<Uninstall>, Option<Box<dyn FnOnce() + Send + Sync>>)> {
+) -> anyhow::Result<(
+    opentelemetry_sdk::trace::TracerProvider,
+    Option<Uninstall>,
+    Option<Box<dyn FnOnce() + Send + Sync>>,
+)> {
     let mut exporters: Vec<Box<dyn SpanProcessor + Send + Sync>> = Vec::new();
     let mut jaeger_uninstall = None;
     let mut otel_shutdown: Option<Box<dyn FnOnce() + Send + Sync>> = None;
@@ -139,7 +140,7 @@ fn build_jaeger_exporter(
     config: &JaegerConfig,
 ) -> anyhow::Result<(opentelemetry_jaeger::Exporter, Uninstall)> {
     let agent_endpoint = format!("{}:{}", config.agent_host, config.agent_port);
-    
+
     let exporter = opentelemetry_jaeger::Exporter::builder()
         .with_agent_endpoint(agent_endpoint)
         .with_process(opentelemetry_jaeger::Process::new(
@@ -155,7 +156,10 @@ fn build_jaeger_exporter(
 fn build_otlp_exporter(
     config: &OtelConfig,
     endpoint: &str,
-) -> anyhow::Result<(opentelemetry_otlp::SpanExporter, Box<dyn FnOnce() + Send + Sync>)> {
+) -> anyhow::Result<(
+    opentelemetry_otlp::SpanExporter,
+    Box<dyn FnOnce() + Send + Sync>,
+)> {
     let mut exporter_builder = opentelemetry_otlp::new_exporter()
         .tonic()
         .with_endpoint(endpoint.to_string())
@@ -247,9 +251,7 @@ fn build_fmt_layer(
 }
 
 /// Build env filter.
-fn build_env_filter(
-    logging_config: &crate::types::LoggingConfig,
-) -> anyhow::Result<EnvFilter> {
+fn build_env_filter(logging_config: &crate::types::LoggingConfig) -> anyhow::Result<EnvFilter> {
     let mut filter = EnvFilter::try_new(&logging_config.level)?;
 
     if let Some(targets) = &logging_config.targets {
@@ -282,15 +284,16 @@ impl Drop for TracingGuard {
 
 /// Extract trace context from headers.
 pub fn extract_trace_context(headers: &axum::http::HeaderMap) -> opentelemetry::Context {
-    global::get_text_map_propagator(|propagator| {
-        propagator.extract(&HeaderExtractor(headers))
-    })
+    global::get_text_map_propagator(|propagator| propagator.extract(&HeaderExtractor(headers)))
 }
 
 /// Inject trace context into headers.
 pub fn inject_trace_context(headers: &mut axum::http::HeaderMap) {
     global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&opentelemetry::Context::current(), &mut HeaderInjector(headers))
+        propagator.inject_context(
+            &opentelemetry::Context::current(),
+            &mut HeaderInjector(headers),
+        )
     })
 }
 
@@ -321,7 +324,10 @@ impl<'a> opentelemetry::propagation::Injector for HeaderInjector<'a> {
 }
 
 /// Axum middleware for trace context propagation.
-pub fn trace_context_middleware() -> axum::middleware::MapRequestResponse<fn(axum::http::Request<axum::body::Body>) -> axum::http::Request<axum::body::Body>, fn(axum::http::Response<axum::body::Body>) -> axum::http::Response<axum::body::Body>> {
+pub fn trace_context_middleware() -> axum::middleware::MapRequestResponse<
+    fn(axum::http::Request<axum::body::Body>) -> axum::http::Request<axum::body::Body>,
+    fn(axum::http::Response<axum::body::Body>) -> axum::http::Response<axum::body::Body>,
+> {
     axum::middleware::map_request_response(
         |mut req: axum::http::Request<axum::body::Body>| {
             // Extract trace context from incoming headers

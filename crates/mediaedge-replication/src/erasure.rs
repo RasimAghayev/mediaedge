@@ -43,11 +43,21 @@ pub struct ErasureConfig {
     pub max_concurrent: usize,
 }
 
-fn default_k() -> usize { 10 }
-fn default_m() -> usize { 4 }
-fn default_chunk_size() -> usize { 1024 * 1024 } // 1MB
-fn default_true() -> bool { true }
-fn default_max_concurrent() -> usize { 4 }
+fn default_k() -> usize {
+    10
+}
+fn default_m() -> usize {
+    4
+}
+fn default_chunk_size() -> usize {
+    1024 * 1024
+} // 1MB
+fn default_true() -> bool {
+    true
+}
+fn default_max_concurrent() -> usize {
+    4
+}
 
 impl Default for ErasureConfig {
     fn default() -> Self {
@@ -64,7 +74,7 @@ impl Default for ErasureConfig {
 /// Erasure coding result.
 #[derive(Debug, Clone)]
 pub struct ErasureResult {
-    pub shards: Vec<Bytes>,      // k + m shards
+    pub shards: Vec<Bytes>, // k + m shards
     pub original_size: usize,
     pub shard_size: usize,
     pub encoding_time_ms: u64,
@@ -122,7 +132,7 @@ impl ErasureCoder {
         let start = Instant::now();
 
         let data_len = data.len();
-        
+
         // If data is small enough, encode directly
         if data_len <= self.config.chunk_size {
             return self.encode_single_chunk(data, start).await;
@@ -133,18 +143,22 @@ impl ErasureCoder {
     }
 
     /// Encode a single chunk.
-    async fn encode_single_chunk(&self, data: Bytes, start: Instant) -> anyhow::Result<ErasureResult> {
+    async fn encode_single_chunk(
+        &self,
+        data: Bytes,
+        start: Instant,
+    ) -> anyhow::Result<ErasureResult> {
         let encoder = self.encoder.read();
-        
+
         // Pad data to be divisible by k
         let padded_len = ((data.len() + self.config.k - 1) / self.config.k) * self.config.k;
         let mut padded_data = BytesMut::from(&data[..]);
         padded_data.resize(padded_len, 0);
-        
+
         // Split into k shards
         let shard_size = padded_len / self.config.k;
         let mut shards: Vec<Vec<u8>> = Vec::with_capacity(self.config.k + self.config.m);
-        
+
         for i in 0..self.config.k {
             let start_idx = i * shard_size;
             let end_idx = start_idx + shard_size;
@@ -157,7 +171,8 @@ impl ErasureCoder {
         }
 
         // Encode
-        encoder.encode(&mut shards)
+        encoder
+            .encode(&mut shards)
             .map_err(|e| anyhow::anyhow!("Encoding failed: {}", e))?;
 
         let encoding_time = start.elapsed().as_millis() as u64;
@@ -165,9 +180,15 @@ impl ErasureCoder {
         // Convert to Bytes
         let shard_bytes: Vec<Bytes> = shards.into_iter().map(Bytes::from).collect();
 
-        self.metrics.counter("erasure_encode_total", "Erasure encoding operations").increment(1);
-        self.metrics.histogram("erasure_encode_duration_ms", "Erasure encode duration").record(encoding_time as f64);
-        self.metrics.counter("erasure_encoded_bytes_total", "Encoded bytes").increment(data_len as u64);
+        self.metrics
+            .counter("erasure_encode_total", "Erasure encoding operations")
+            .increment(1);
+        self.metrics
+            .histogram("erasure_encode_duration_ms", "Erasure encode duration")
+            .record(encoding_time as f64);
+        self.metrics
+            .counter("erasure_encoded_bytes_total", "Encoded bytes")
+            .increment(data_len as u64);
 
         Ok(ErasureResult {
             shards: shard_bytes,
@@ -181,7 +202,7 @@ impl ErasureCoder {
     async fn encode_chunked(&self, data: Bytes, start: Instant) -> anyhow::Result<ErasureResult> {
         let chunk_size = self.config.chunk_size;
         let total_chunks = (data.len() + chunk_size - 1) / chunk_size;
-        
+
         let mut all_shards: Vec<Vec<Bytes>> = vec![Vec::new(); self.config.k + self.config.m];
         let mut total_shard_size = 0;
 
@@ -191,11 +212,11 @@ impl ErasureCoder {
             let chunk = data.slice(chunk_start..chunk_end);
 
             let result = self.encode_single_chunk(chunk, Instant::now()).await?;
-            
+
             for (i, shard) in result.shards.iter().enumerate() {
                 all_shards[i].push(shard.clone());
             }
-            
+
             if chunk_idx == 0 {
                 total_shard_size = result.shard_size;
             }
@@ -213,7 +234,12 @@ impl ErasureCoder {
 
         let encoding_time = start.elapsed().as_millis() as u64;
 
-        self.metrics.counter("erasure_encode_chunked_total", "Chunked encoding operations").increment(1);
+        self.metrics
+            .counter(
+                "erasure_encode_chunked_total",
+                "Chunked encoding operations",
+            )
+            .increment(1);
 
         Ok(ErasureResult {
             shards: combined_shards,
@@ -224,23 +250,32 @@ impl ErasureCoder {
     }
 
     /// Decode data from available shards (k out of k+m).
-    pub async fn decode(&self, shards: Vec<Option<Bytes>>, original_size: usize) -> anyhow::Result<DecodedResult> {
+    pub async fn decode(
+        &self,
+        shards: Vec<Option<Bytes>>,
+        original_size: usize,
+    ) -> anyhow::Result<DecodedResult> {
         let _permit = self.semaphore.acquire().await?;
         let start = Instant::now();
 
-        let available: Vec<_> = shards.iter().enumerate()
+        let available: Vec<_> = shards
+            .iter()
+            .enumerate()
             .filter_map(|(i, s)| s.as_ref().map(|_| i))
             .collect();
 
         if available.len() < self.config.k {
             return Err(anyhow::anyhow!(
-                "Insufficient shards: need {}, have {}", 
-                self.config.k, available.len()
+                "Insufficient shards: need {}, have {}",
+                self.config.k,
+                available.len()
             ));
         }
 
         // If we have all shards, just take first k data shards
-        if available.len() == self.config.k + self.config.m && available.iter().all(|&i| i < self.config.k) {
+        if available.len() == self.config.k + self.config.m
+            && available.iter().all(|&i| i < self.config.k)
+        {
             // All data shards present, just concatenate
             let mut data = BytesMut::new();
             for i in 0..self.config.k {
@@ -248,10 +283,10 @@ impl ErasureCoder {
                     data.extend_from_slice(shard);
                 }
             }
-            
+
             // Trim to original size
             let final_data = data[..original_size].to_vec().into();
-            
+
             return Ok(DecodedResult {
                 data: final_data,
                 decoding_time_ms: start.elapsed().as_millis() as u64,
@@ -260,32 +295,40 @@ impl ErasureCoder {
         }
 
         // Need to reconstruct missing shards
-        self.decode_with_reconstruction(shards, original_size, start).await
+        self.decode_with_reconstruction(shards, original_size, start)
+            .await
     }
 
     /// Decode with shard reconstruction.
     async fn decode_with_reconstruction(
-        &self, 
-        mut shards: Vec<Option<Bytes>>, 
+        &self,
+        mut shards: Vec<Option<Bytes>>,
         original_size: usize,
         start: Instant,
     ) -> anyhow::Result<DecodedResult> {
         let encoder = self.encoder.read();
-        
-        let shard_size = shards.iter()
+
+        let shard_size = shards
+            .iter()
             .find_map(|s| s.as_ref().map(|b| b.len()))
             .ok_or_else(|| anyhow::anyhow!("No shards provided"))?;
 
         // Prepare mutable shard buffers for reconstruction
-        let mut shard_buffers: Vec<Vec<u8>> = shards.iter().map(|s| {
-            s.as_ref().map(|b| b.to_vec()).unwrap_or_else(|| vec![0u8; shard_size])
-        }).collect();
+        let mut shard_buffers: Vec<Vec<u8>> = shards
+            .iter()
+            .map(|s| {
+                s.as_ref()
+                    .map(|b| b.to_vec())
+                    .unwrap_or_else(|| vec![0u8; shard_size])
+            })
+            .collect();
 
         // Track which shards are missing
         let missing: Vec<bool> = shards.iter().map(|s| s.is_none()).collect();
 
         // Reconstruct
-        encoder.reconstruct(&mut shard_buffers, &missing)
+        encoder
+            .reconstruct(&mut shard_buffers, &missing)
             .map_err(|e| anyhow::anyhow!("Reconstruction failed: {}", e))?;
 
         // Combine data shards
@@ -299,9 +342,15 @@ impl ErasureCoder {
 
         let decoding_time = start.elapsed().as_millis() as u64;
 
-        self.metrics.counter("erasure_decode_total", "Erasure decoding operations").increment(1);
-        self.metrics.histogram("erasure_decode_duration_ms", "Erasure decode duration").record(decoding_time as f64);
-        self.metrics.counter("erasure_repaired_shards_total", "Repaired shards").increment(repaired as u64);
+        self.metrics
+            .counter("erasure_decode_total", "Erasure decoding operations")
+            .increment(1);
+        self.metrics
+            .histogram("erasure_decode_duration_ms", "Erasure decode duration")
+            .record(decoding_time as f64);
+        self.metrics
+            .counter("erasure_repaired_shards_total", "Repaired shards")
+            .increment(repaired as u64);
 
         Ok(DecodedResult {
             data: final_data,
@@ -318,7 +367,7 @@ impl ErasureCoder {
 
         // Try to decode with all shards
         let shard_opts: Vec<Option<Bytes>> = shards.iter().cloned().map(Some).collect();
-        
+
         match self.decode(shard_opts, original_size) {
             Ok(_) => true,
             Err(_) => false,
@@ -339,7 +388,7 @@ impl ErasureCoder {
         let m = self.config.m as f64;
         let n = k + m;
         let p = node_failure_prob;
-        
+
         // Simplified: probability that > m nodes fail
         // For small p, this is very small
         let mut prob = 0.0;
@@ -348,7 +397,7 @@ impl ErasureCoder {
             let comb = binomial_coefficient(n as usize, i);
             prob += comb * p.powi(i as i32) * (1.0 - p).powi((n - i) as i32);
         }
-        
+
         1.0 - prob
     }
 
@@ -366,7 +415,7 @@ fn binomial_coefficient(n: usize, k: usize) -> f64 {
     if k == 0 || k == n {
         return 1.0;
     }
-    
+
     let mut result = 1.0;
     for i in 0..k {
         result *= (n - i) as f64 / (i + 1) as f64;
@@ -393,18 +442,18 @@ impl StreamingEncoder {
     /// Add data to the stream.
     pub async fn push(&mut self, data: &[u8]) -> anyhow::Result<Vec<Option<Bytes>>> {
         self.buffer.extend_from_slice(data);
-        
+
         let mut results = Vec::new();
-        
+
         while self.buffer.len() >= self.chunk_size {
             let chunk = self.buffer.split_to(self.chunk_size).freeze();
             let result = self.coder.encode(chunk).await?;
-            
+
             // Return shards as Options (all present for encoding)
             let shards: Vec<Option<Bytes>> = result.shards.into_iter().map(Some).collect();
             results.push(shards);
         }
-        
+
         // For simplicity, return the last result
         // In real implementation, would handle multiple chunks
         Ok(results.into_iter().last().unwrap_or_default())
@@ -415,7 +464,7 @@ impl StreamingEncoder {
         if self.buffer.is_empty() {
             return Ok(None);
         }
-        
+
         let chunk = self.buffer.split().freeze();
         let result = self.coder.encode(chunk).await?;
         let shards: Vec<Option<Bytes>> = result.shards.into_iter().map(Some).collect();
@@ -449,7 +498,7 @@ impl StreamingDecoder {
         if shard_index >= self.shard_buffers.len() {
             return Err(anyhow::anyhow!("Invalid shard index"));
         }
-        
+
         self.shard_buffers[shard_index].extend_from_slice(&data);
         self.received_shards += 1;
         Ok(())
@@ -461,8 +510,16 @@ impl StreamingDecoder {
             return Ok(None);
         }
 
-        let shards: Vec<Option<Bytes>> = self.shard_buffers.iter()
-            .map(|b| if b.is_empty() { None } else { Some(b.clone().freeze()) })
+        let shards: Vec<Option<Bytes>> = self
+            .shard_buffers
+            .iter()
+            .map(|b| {
+                if b.is_empty() {
+                    None
+                } else {
+                    Some(b.clone().freeze())
+                }
+            })
             .collect();
 
         let result = self.coder.decode(shards, self.original_size).await?;
@@ -478,7 +535,8 @@ mod tests {
     #[tokio::test]
     async fn test_erasure_encode_decode() {
         let config = ErasureConfig::default();
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let coder = ErasureCoder::new(config, metrics).unwrap();
 
         // Test data
@@ -500,7 +558,8 @@ mod tests {
     #[tokio::test]
     async fn test_erasure_decode_missing_shards() {
         let config = ErasureConfig::default();
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let coder = ErasureCoder::new(config, metrics).unwrap();
 
         let data = Bytes::from(vec![0x42u8; 10000]);
@@ -522,7 +581,8 @@ mod tests {
     #[tokio::test]
     async fn test_erasure_insufficient_shards() {
         let config = ErasureConfig::default();
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let coder = ErasureCoder::new(config, metrics).unwrap();
 
         let data = Bytes::from(vec![0x42u8; 10000]);
@@ -541,7 +601,8 @@ mod tests {
     #[tokio::test]
     async fn test_erasure_overhead_ratio() {
         let config = ErasureConfig::default();
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let coder = ErasureCoder::new(config, metrics).unwrap();
 
         // k=10, m=4 -> overhead = 14/10 = 1.4
@@ -551,7 +612,8 @@ mod tests {
     #[tokio::test]
     async fn test_erasure_durability() {
         let config = ErasureConfig::default();
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let coder = ErasureCoder::new(config, metrics).unwrap();
 
         // With 1% node failure rate, durability should be very high
@@ -562,11 +624,12 @@ mod tests {
     #[tokio::test]
     async fn test_streaming_encoder() {
         let config = ErasureConfig::default();
-        let metrics = Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
+        let metrics =
+            Arc::new(mediaedge_observability::MetricsRegistry::new(&Default::default()).unwrap());
         let coder = Arc::new(ErasureCoder::new(config, metrics).unwrap());
 
         let mut encoder = StreamingEncoder::new(coder.clone(), 1024);
-        
+
         // Push data in small chunks
         for _ in 0..10 {
             let result = encoder.push(&[0x42u8; 200]).await.unwrap();

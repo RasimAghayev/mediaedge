@@ -159,13 +159,33 @@ impl MfaManagerConfig {
     pub fn from_config(config: &Config) -> Self {
         Self {
             totp: TotpConfig {
-                issuer: config.auth.mfa.totp_issuer.clone().unwrap_or_else(|| "MediaEdge".to_string()),
+                issuer: config
+                    .auth
+                    .mfa
+                    .totp_issuer
+                    .clone()
+                    .unwrap_or_else(|| "MediaEdge".to_string()),
                 ..Default::default()
             },
             webauthn: WebAuthnConfig {
-                rp_id: config.auth.mfa.webauthn_rp_id.clone().unwrap_or_else(|| "localhost".to_string()),
-                rp_name: config.auth.mfa.webauthn_rp_name.clone().unwrap_or_else(|| "MediaEdge".to_string()),
-                rp_origin: config.auth.mfa.webauthn_rp_origin.clone().unwrap_or_else(|| "https://localhost".to_string()),
+                rp_id: config
+                    .auth
+                    .mfa
+                    .webauthn_rp_id
+                    .clone()
+                    .unwrap_or_else(|| "localhost".to_string()),
+                rp_name: config
+                    .auth
+                    .mfa
+                    .webauthn_rp_name
+                    .clone()
+                    .unwrap_or_else(|| "MediaEdge".to_string()),
+                rp_origin: config
+                    .auth
+                    .mfa
+                    .webauthn_rp_origin
+                    .clone()
+                    .unwrap_or_else(|| "https://localhost".to_string()),
                 ..Default::default()
             },
             backup_codes_count: config.auth.mfa.backup_codes_count.unwrap_or(10),
@@ -266,29 +286,42 @@ impl MfaManager {
         };
 
         // Verify with current time
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         totp.check(code, now)
     }
 
     // ==================== WebAuthn Methods ====================
 
     /// Start WebAuthn registration (returns creation challenge).
-    pub async fn start_webauthn_registration(&self, user_id: Uuid, user_name: &str, display_name: &str) -> Result<CreationChallengeResponse> {
+    pub async fn start_webauthn_registration(
+        &self,
+        user_id: Uuid,
+        user_name: &str,
+        display_name: &str,
+    ) -> Result<CreationChallengeResponse> {
         let user_unique_id = Uuid::new_v4().as_bytes().to_vec();
 
-        let (ccr, challenge) = self.webauthn
+        let (ccr, challenge) = self
+            .webauthn
             .start_passkey_registration(user_unique_id, user_name, display_name, None)
             .map_err(|e| anyhow::anyhow!("WebAuthn registration start failed: {}", e))?;
 
         // Store challenge for verification
         let challenge_id = Uuid::new_v4().to_string();
-        self.pending_challenges.insert(challenge_id.clone(), WebAuthnChallenge {
-            challenge_id,
-            user_id,
-            challenge,
-            challenge_type: WebAuthnChallengeType::Registration,
-            expires_at: chrono::Utc::now() + chrono::Duration::from_std(self.config.challenge_ttl).unwrap(),
-        });
+        self.pending_challenges.insert(
+            challenge_id.clone(),
+            WebAuthnChallenge {
+                challenge_id,
+                user_id,
+                challenge,
+                challenge_type: WebAuthnChallengeType::Registration,
+                expires_at: chrono::Utc::now()
+                    + chrono::Duration::from_std(self.config.challenge_ttl).unwrap(),
+            },
+        );
 
         Ok(ccr)
     }
@@ -299,10 +332,13 @@ impl MfaManager {
         challenge_id: &str,
         registration: RegisterPublicKeyCredential,
     ) -> Result<WebAuthnCredential> {
-        let pending = self.pending_challenges.remove(challenge_id)
+        let pending = self
+            .pending_challenges
+            .remove(challenge_id)
             .ok_or_else(|| anyhow::anyhow!("Invalid or expired challenge"))?;
 
-        let credential = self.webauthn
+        let credential = self
+            .webauthn
             .finish_passkey_registration(&registration, &pending.1)
             .map_err(|e| anyhow::anyhow!("WebAuthn registration finish failed: {}", e))?;
 
@@ -321,12 +357,19 @@ impl MfaManager {
     }
 
     /// Start WebAuthn authentication (returns request challenge).
-    pub async fn start_webauthn_authentication(&self, user_id: Uuid) -> Result<RequestChallengeResponse> {
+    pub async fn start_webauthn_authentication(
+        &self,
+        user_id: Uuid,
+    ) -> Result<RequestChallengeResponse> {
         // Get user's registered credentials
-        let enrollment = self.enrollments.get(&user_id)
+        let enrollment = self
+            .enrollments
+            .get(&user_id)
             .ok_or_else(|| anyhow::anyhow!("No MFA enrollment found"))?;
 
-        let credential = enrollment.webauthn_credential.as_ref()
+        let credential = enrollment
+            .webauthn_credential
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No WebAuthn credential enrolled"))?;
 
         let allowed_creds = vec![PublicKeyCredentialDescriptor {
@@ -336,18 +379,23 @@ impl MfaManager {
             attestation_transport: None,
         }];
 
-        let (rcr, challenge) = self.webauthn
+        let (rcr, challenge) = self
+            .webauthn
             .start_passkey_authentication(&allowed_creds)
             .map_err(|e| anyhow::anyhow!("WebAuthn auth start failed: {}", e))?;
 
         let challenge_id = Uuid::new_v4().to_string();
-        self.pending_challenges.insert(challenge_id.clone(), WebAuthnChallenge {
-            challenge_id,
-            user_id,
-            challenge,
-            challenge_type: WebAuthnChallengeType::Authentication,
-            expires_at: chrono::Utc::now() + chrono::Duration::from_std(self.config.challenge_ttl).unwrap(),
-        });
+        self.pending_challenges.insert(
+            challenge_id.clone(),
+            WebAuthnChallenge {
+                challenge_id,
+                user_id,
+                challenge,
+                challenge_type: WebAuthnChallengeType::Authentication,
+                expires_at: chrono::Utc::now()
+                    + chrono::Duration::from_std(self.config.challenge_ttl).unwrap(),
+            },
+        );
 
         Ok(rcr)
     }
@@ -358,13 +406,19 @@ impl MfaManager {
         challenge_id: &str,
         authentication: PublicKeyCredential,
     ) -> Result<()> {
-        let pending = self.pending_challenges.remove(challenge_id)
+        let pending = self
+            .pending_challenges
+            .remove(challenge_id)
             .ok_or_else(|| anyhow::anyhow!("Invalid or expired challenge"))?;
 
-        let enrollment = self.enrollments.get(&pending.0.user_id)
+        let enrollment = self
+            .enrollments
+            .get(&pending.0.user_id)
             .ok_or_else(|| anyhow::anyhow!("No MFA enrollment found"))?;
 
-        let credential = enrollment.webauthn_credential.as_ref()
+        let credential = enrollment
+            .webauthn_credential
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No WebAuthn credential enrolled"))?;
 
         // Verify authentication
@@ -386,7 +440,11 @@ impl MfaManager {
     // ==================== Enrollment Management ====================
 
     /// Start TOTP enrollment.
-    pub async fn start_totp_enrollment(&self, user_id: Uuid, user_email: &str) -> Result<MfaEnrollment> {
+    pub async fn start_totp_enrollment(
+        &self,
+        user_id: Uuid,
+        user_email: &str,
+    ) -> Result<MfaEnrollment> {
         let secret = self.generate_totp_secret(user_email);
         let backup_codes = self.generate_backup_codes();
 
@@ -407,14 +465,18 @@ impl MfaManager {
 
     /// Complete TOTP enrollment (verify first code).
     pub async fn complete_totp_enrollment(&self, user_id: Uuid, code: &str) -> Result<bool> {
-        let mut enrollment = self.enrollments.get_mut(&user_id)
+        let mut enrollment = self
+            .enrollments
+            .get_mut(&user_id)
             .ok_or_else(|| anyhow::anyhow!("No pending TOTP enrollment"))?;
 
         if enrollment.method != MfaMethod::Totp {
             return Err(anyhow::anyhow!("Invalid enrollment method"));
         }
 
-        let secret = enrollment.totp_secret.as_ref()
+        let secret = enrollment
+            .totp_secret
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No TOTP secret"))?;
 
         let verified = self.verify_totp(secret, code);
@@ -430,8 +492,15 @@ impl MfaManager {
     }
 
     /// Start WebAuthn enrollment.
-    pub async fn start_webauthn_enrollment(&self, user_id: Uuid, user_name: &str, display_name: &str) -> Result<(MfaEnrollment, CreationChallengeResponse)> {
-        let ccr = self.start_webauthn_registration(user_id, user_name, display_name).await?;
+    pub async fn start_webauthn_enrollment(
+        &self,
+        user_id: Uuid,
+        user_name: &str,
+        display_name: &str,
+    ) -> Result<(MfaEnrollment, CreationChallengeResponse)> {
+        let ccr = self
+            .start_webauthn_registration(user_id, user_name, display_name)
+            .await?;
         let backup_codes = self.generate_backup_codes();
 
         let enrollment = MfaEnrollment {
@@ -456,9 +525,13 @@ impl MfaManager {
         challenge_id: &str,
         registration: RegisterPublicKeyCredential,
     ) -> Result<bool> {
-        let credential = self.complete_webauthn_registration(challenge_id, registration).await?;
+        let credential = self
+            .complete_webauthn_registration(challenge_id, registration)
+            .await?;
 
-        let mut enrollment = self.enrollments.get_mut(&user_id)
+        let mut enrollment = self
+            .enrollments
+            .get_mut(&user_id)
             .ok_or_else(|| anyhow::anyhow!("No pending WebAuthn enrollment"))?;
 
         enrollment.webauthn_credential = Some(credential);
@@ -470,7 +543,9 @@ impl MfaManager {
 
     /// Verify MFA code (TOTP or backup code).
     pub async fn verify_mfa(&self, user_id: Uuid, code: &str) -> Result<MfaVerificationResult> {
-        let enrollment = self.enrollments.get(&user_id)
+        let enrollment = self
+            .enrollments
+            .get(&user_id)
             .ok_or_else(|| anyhow::anyhow!("No MFA enrollment found"))?;
 
         // Check backup codes first
@@ -529,7 +604,9 @@ impl MfaManager {
 
     /// Regenerate backup codes.
     pub async fn regenerate_backup_codes(&self, user_id: Uuid) -> Result<Vec<String>> {
-        let mut enrollment = self.enrollments.get_mut(&user_id)
+        let mut enrollment = self
+            .enrollments
+            .get_mut(&user_id)
             .ok_or_else(|| anyhow::anyhow!("No MFA enrollment found"))?;
 
         let codes = self.generate_backup_codes();

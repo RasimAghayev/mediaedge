@@ -72,7 +72,7 @@ pub struct EncryptedSecret {
     pub metadata: SecretMetadata,
     pub ciphertext: Vec<u8>,
     pub nonce: Vec<u8>,
-    pub aad: Vec<u8>, // Additional authenticated data
+    pub aad: Vec<u8>,              // Additional authenticated data
     pub encryption_key_id: String, // KMS key ID or Age recipient
 }
 
@@ -97,12 +97,18 @@ impl SecretsManager {
     /// Create a new secrets manager.
     pub async fn new(config: &Config) -> Result<Arc<Self>> {
         let mgr_config = SecretsManagerConfig {
-            backend: config.secrets.backend.clone().unwrap_or(SecretsBackend::Age),
+            backend: config
+                .secrets
+                .backend
+                .clone()
+                .unwrap_or(SecretsBackend::Age),
             age_key_path: config.secrets.age_key_path.clone(),
             kms_key_id: config.secrets.kms_key_id.clone(),
             kms_region: config.secrets.kms_region.clone(),
             cache_ttl: Duration::from_secs(config.secrets.cache_ttl_secs.unwrap_or(300)),
-            rotation_interval: Duration::from_secs(config.secrets.rotation_interval_secs.unwrap_or(86400)),
+            rotation_interval: Duration::from_secs(
+                config.secrets.rotation_interval_secs.unwrap_or(86400),
+            ),
         };
 
         let mut mgr = Self {
@@ -128,7 +134,10 @@ impl SecretsManager {
             SecretsBackend::AwsKms => {}
         }
 
-        if matches!(self.config.backend, SecretsBackend::AwsKms | SecretsBackend::Hybrid) {
+        if matches!(
+            self.config.backend,
+            SecretsBackend::AwsKms | SecretsBackend::Hybrid
+        ) {
             self.init_kms().await?;
         }
 
@@ -136,7 +145,10 @@ impl SecretsManager {
     }
 
     async fn init_age(&mut self) -> Result<()> {
-        let key_path = self.config.age_key_path.clone()
+        let key_path = self
+            .config
+            .age_key_path
+            .clone()
             .unwrap_or_else(|| "./secrets/age.key".to_string());
 
         // Generate key if not exists
@@ -157,8 +169,8 @@ impl SecretsManager {
     }
 
     async fn generate_age_key(&self, path: &str) -> Result<()> {
-        use age::secrecy::SecretString;
         use age::scrypt::Identity;
+        use age::secrecy::SecretString;
 
         let identity = Identity::generate();
         let secret_key = identity.to_string();
@@ -174,7 +186,10 @@ impl SecretsManager {
     }
 
     async fn init_kms(&mut self) -> Result<()> {
-        let region = self.config.kms_region.clone()
+        let region = self
+            .config
+            .kms_region
+            .clone()
             .unwrap_or_else(|| "us-east-1".to_string());
 
         let aws_config = aws_config::from_env()
@@ -204,11 +219,15 @@ impl SecretsManager {
         self.persist_secret(&encrypted).await?;
 
         let cache_key = Self::cache_key(tenant_id, &name);
-        self.cache.insert(cache_key, Secret {
-            metadata: encrypted.metadata.clone(),
-            value: secret_value,
-        });
-        self.metadata_cache.insert(encrypted.metadata.id, encrypted.metadata.clone());
+        self.cache.insert(
+            cache_key,
+            Secret {
+                metadata: encrypted.metadata.clone(),
+                value: secret_value,
+            },
+        );
+        self.metadata_cache
+            .insert(encrypted.metadata.id, encrypted.metadata.clone());
 
         Ok(encrypted.metadata)
     }
@@ -231,7 +250,8 @@ impl SecretsManager {
                 value: decrypted,
             };
             self.cache.insert(cache_key, secret.clone());
-            self.metadata_cache.insert(encrypted.metadata.id, encrypted.metadata);
+            self.metadata_cache
+                .insert(encrypted.metadata.id, encrypted.metadata);
             Ok(Some(secret))
         } else {
             Ok(None)
@@ -240,7 +260,8 @@ impl SecretsManager {
 
     /// Get secret value as string (convenience).
     pub async fn get_secret_value(&self, tenant_id: Uuid, name: &str) -> Result<Option<String>> {
-        self.get_secret(tenant_id, name).await
+        self.get_secret(tenant_id, name)
+            .await
             .map(|opt| opt.map(|s| s.value.expose_secret().to_string()))
     }
 
@@ -262,7 +283,9 @@ impl SecretsManager {
 
     /// Rotate a secret (generate new version).
     pub async fn rotate_secret(&self, tenant_id: Uuid, name: &str) -> Result<SecretMetadata> {
-        let old_secret = self.get_secret(tenant_id, name).await?
+        let old_secret = self
+            .get_secret(tenant_id, name)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("Secret not found"))?;
 
         // Generate new value (for auto-rotation, this would be integration-specific)
@@ -276,11 +299,17 @@ impl SecretsManager {
             old_secret.metadata.tags,
             old_secret.metadata.expires_at,
             old_secret.metadata.rotation_enabled,
-        ).await
+        )
+        .await
     }
 
     /// Encrypt a secret using envelope encryption.
-    async fn encrypt_secret(&self, tenant_id: Uuid, name: &str, value: &SecretString) -> Result<EncryptedSecret> {
+    async fn encrypt_secret(
+        &self,
+        tenant_id: Uuid,
+        name: &str,
+        value: &SecretString,
+    ) -> Result<EncryptedSecret> {
         let metadata = SecretMetadata {
             id: Uuid::new_v4(),
             name: name.to_string(),
@@ -301,8 +330,14 @@ impl SecretsManager {
         }
     }
 
-    async fn encrypt_age(&self, metadata: &SecretMetadata, value: &SecretString) -> Result<EncryptedSecret> {
-        let encryptor = self.age_encryptor.as_ref()
+    async fn encrypt_age(
+        &self,
+        metadata: &SecretMetadata,
+        value: &SecretString,
+    ) -> Result<EncryptedSecret> {
+        let encryptor = self
+            .age_encryptor
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Age encryptor not initialized"))?;
 
         let mut encrypted = Vec::new();
@@ -322,16 +357,28 @@ impl SecretsManager {
         })
     }
 
-    async fn encrypt_kms(&self, metadata: &SecretMetadata, value: &SecretString) -> Result<EncryptedSecret> {
-        let client = self.kms_client.as_ref()
+    async fn encrypt_kms(
+        &self,
+        metadata: &SecretMetadata,
+        value: &SecretString,
+    ) -> Result<EncryptedSecret> {
+        let client = self
+            .kms_client
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("KMS client not initialized"))?;
 
-        let key_id = self.config.kms_key_id.as_ref()
+        let key_id = self
+            .config
+            .kms_key_id
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("KMS key ID not configured"))?;
 
-        let response = client.encrypt()
+        let response = client
+            .encrypt()
             .key_id(key_id)
-            .plaintext(aws_smithy_types::Blob::new(value.expose_secret().as_bytes()))
+            .plaintext(aws_smithy_types::Blob::new(
+                value.expose_secret().as_bytes(),
+            ))
             .encryption_algorithm(EncryptionAlgorithmSpec::Symaes256)
             .send()
             .await
@@ -346,7 +393,11 @@ impl SecretsManager {
         })
     }
 
-    async fn encrypt_hybrid(&self, metadata: &SecretMetadata, value: &SecretString) -> Result<EncryptedSecret> {
+    async fn encrypt_hybrid(
+        &self,
+        metadata: &SecretMetadata,
+        value: &SecretString,
+    ) -> Result<EncryptedSecret> {
         // Encrypt with both, store both ciphertexts
         // For simplicity, use Age locally, KMS for cloud sync
         self.encrypt_age(metadata, value).await
@@ -362,7 +413,9 @@ impl SecretsManager {
     }
 
     async fn decrypt_age(&self, encrypted: &EncryptedSecret) -> Result<SecretString> {
-        let decryptor = self.age_decryptor.as_ref()
+        let decryptor = self
+            .age_decryptor
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Age decryptor not initialized"))?;
 
         let mut decrypted = Vec::new();
@@ -376,17 +429,20 @@ impl SecretsManager {
     }
 
     async fn decrypt_kms(&self, encrypted: &EncryptedSecret) -> Result<SecretString> {
-        let client = self.kms_client.as_ref()
+        let client = self
+            .kms_client
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("KMS client not initialized"))?;
 
-        let response = client.decrypt()
+        let response = client
+            .decrypt()
             .ciphertext_blob(aws_smithy_types::Blob::new(encrypted.ciphertext.clone()))
             .send()
             .await
             .context("KMS decryption failed")?;
 
         Ok(SecretString::new(
-            String::from_utf8(response.plaintext.unwrap().into_inner())?.into()
+            String::from_utf8(response.plaintext.unwrap().into_inner())?.into(),
         ))
     }
 

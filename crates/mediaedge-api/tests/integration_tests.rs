@@ -1,18 +1,23 @@
 //! Integration tests for mediaedge-api.
 
-use mediaedge_api::{
-    openapi::{create_openapi_router, OpenApiConfig, ApiVersion, ErrorResponse},
-    validation::{ValidationConfig, ValidatedJson, ValidatedQuery},
-    versioning::{VersioningConfig, VersioningLayer, versioning_layer, extract_version, VersionSource, get_version_info},
-    rate_limit::{RateLimitConfig, RateLimitLayer, rate_limit_layer, KeyExtractor, TokenBucket},
-    middleware::{ApiMiddlewareConfig, create_api_router, create_full_api_router, cors_layer, CorsConfig},
-};
 use axum::{
+    Json, Router,
     body::Body,
-    http::{Request, StatusCode, HeaderMap, HeaderValue},
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
     middleware::Next,
     routing::{get, post},
-    Json, Router,
+};
+use mediaedge_api::{
+    middleware::{
+        ApiMiddlewareConfig, CorsConfig, cors_layer, create_api_router, create_full_api_router,
+    },
+    openapi::{ApiVersion, ErrorResponse, OpenApiConfig, create_openapi_router},
+    rate_limit::{KeyExtractor, RateLimitConfig, RateLimitLayer, TokenBucket, rate_limit_layer},
+    validation::{ValidatedJson, ValidatedQuery, ValidationConfig},
+    versioning::{
+        VersionSource, VersioningConfig, VersioningLayer, extract_version, get_version_info,
+        versioning_layer,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -24,10 +29,10 @@ use validator::Validate;
 struct TestRequest {
     #[validate(length(min = 1, max = 100))]
     name: String,
-    
+
     #[validate(range(min = 1, max = 100))]
     age: u32,
-    
+
     #[validate(email)]
     email: String,
 }
@@ -36,7 +41,7 @@ struct TestRequest {
 struct TestQuery {
     #[validate(range(min = 1))]
     page: u32,
-    
+
     #[validate(range(min = 1, max = 100))]
     per_page: u32,
 }
@@ -45,7 +50,7 @@ struct TestQuery {
 async fn test_openapi_router() {
     let config = OpenApiConfig::default();
     let router = create_openapi_router(&config);
-    
+
     // Test OpenAPI JSON endpoint
     let response = router
         .clone()
@@ -58,10 +63,12 @@ async fn test_openapi_router() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(doc["info"]["title"], "MediaEdge API");
     assert_eq!(doc["info"]["version"], "1.0.0");
@@ -71,7 +78,7 @@ async fn test_openapi_router() {
 async fn test_swagger_ui() {
     let config = OpenApiConfig::default();
     let router = create_openapi_router(&config);
-    
+
     let response = router
         .oneshot(
             Request::builder()
@@ -82,7 +89,7 @@ async fn test_swagger_ui() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
     let content_type = response.headers().get("content-type").unwrap();
     assert!(content_type.to_str().unwrap().contains("text/html"));
@@ -103,7 +110,7 @@ async fn test_validation_config() {
     let config = ValidationConfig::new()
         .with_reject_unknown_fields(true)
         .with_max_body_size(1024 * 1024);
-    
+
     assert!(config.reject_unknown_fields);
     assert_eq!(config.max_body_size, 1024 * 1024);
 }
@@ -114,13 +121,13 @@ async fn test_validated_json_success() {
     let app = Router::new()
         .route("/test", post(handler_validated_json))
         .layer(mediaedge_api::validation::validation_layer(config));
-    
+
     let request_body = json!({
         "name": "John Doe",
         "age": 30,
         "email": "john@example.com"
     });
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -132,11 +139,13 @@ async fn test_validated_json_success() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-async fn handler_validated_json(ValidatedJson(payload): ValidatedJson<TestRequest>) -> Json<serde_json::Value> {
+async fn handler_validated_json(
+    ValidatedJson(payload): ValidatedJson<TestRequest>,
+) -> Json<serde_json::Value> {
     Json(json!({ "received": payload }))
 }
 
@@ -146,13 +155,13 @@ async fn test_validated_json_failure() {
     let app = Router::new()
         .route("/test", post(handler_validated_json))
         .layer(mediaedge_api::validation::validation_layer(config));
-    
+
     let request_body = json!({
         "name": "",
         "age": 150,
         "email": "invalid-email"
     });
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -164,7 +173,7 @@ async fn test_validated_json_failure() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
@@ -174,7 +183,7 @@ async fn test_validated_query() {
     let app = Router::new()
         .route("/test", get(handler_validated_query))
         .layer(mediaedge_api::validation::validation_layer(config));
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -185,11 +194,13 @@ async fn test_validated_query() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-async fn handler_validated_query(ValidatedQuery(query): ValidatedQuery<TestQuery>) -> Json<serde_json::Value> {
+async fn handler_validated_query(
+    ValidatedQuery(query): ValidatedQuery<TestQuery>,
+) -> Json<serde_json::Value> {
     Json(json!({ "query": query }))
 }
 
@@ -200,7 +211,7 @@ async fn test_versioning_config() {
         .with_supported_versions(vec![ApiVersion::V1, ApiVersion::V2])
         .with_header_name("X-Custom-Version".to_string())
         .with_query_param("version".to_string());
-    
+
     assert_eq!(config.default_version, ApiVersion::V2);
     assert_eq!(config.header_name, "X-Custom-Version");
     assert_eq!(config.query_param, "version");
@@ -209,12 +220,12 @@ async fn test_versioning_config() {
 #[tokio::test]
 async fn test_extract_version_from_path() {
     let config = VersioningConfig::new();
-    
+
     let req = Request::builder()
         .uri("/api/v1/streams")
         .body(Body::empty())
         .unwrap();
-    
+
     let version_info = extract_version(&req, &config);
     assert_eq!(version_info.version, ApiVersion::V1);
     assert_eq!(version_info.source, VersionSource::UrlPrefix);
@@ -223,16 +234,16 @@ async fn test_extract_version_from_path() {
 #[tokio::test]
 async fn test_extract_version_from_header() {
     let config = VersioningConfig::new();
-    
+
     let mut headers = HeaderMap::new();
     headers.insert("X-API-Version", HeaderValue::from_static("v2"));
-    
+
     let req = Request::builder()
         .uri("/streams")
         .headers(headers)
         .body(Body::empty())
         .unwrap();
-    
+
     let version_info = extract_version(&req, &config);
     assert_eq!(version_info.version, ApiVersion::V2);
     assert_eq!(version_info.source, VersionSource::Header);
@@ -241,12 +252,12 @@ async fn test_extract_version_from_header() {
 #[tokio::test]
 async fn test_extract_version_from_query() {
     let config = VersioningConfig::new();
-    
+
     let req = Request::builder()
         .uri("/streams?api_version=v1")
         .body(Body::empty())
         .unwrap();
-    
+
     let version_info = extract_version(&req, &config);
     assert_eq!(version_info.version, ApiVersion::V1);
     assert_eq!(version_info.source, VersionSource::QueryParam);
@@ -255,16 +266,19 @@ async fn test_extract_version_from_query() {
 #[tokio::test]
 async fn test_extract_version_from_accept() {
     let config = VersioningConfig::new().with_accept_negotiation(true);
-    
+
     let mut headers = HeaderMap::new();
-    headers.insert("accept", HeaderValue::from_static("application/vnd.mediaedge.v2+json"));
-    
+    headers.insert(
+        "accept",
+        HeaderValue::from_static("application/vnd.mediaedge.v2+json"),
+    );
+
     let req = Request::builder()
         .uri("/streams")
         .headers(headers)
         .body(Body::empty())
         .unwrap();
-    
+
     let version_info = extract_version(&req, &config);
     assert_eq!(version_info.version, ApiVersion::V2);
     assert_eq!(version_info.source, VersionSource::AcceptHeader);
@@ -276,10 +290,10 @@ async fn test_versioning_middleware() {
     let app = Router::new()
         .route("/test", get(handler_version))
         .layer(versioning_layer(config));
-    
+
     let mut headers = HeaderMap::new();
     headers.insert("X-API-Version", HeaderValue::from_static("v1"));
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -291,7 +305,7 @@ async fn test_versioning_middleware() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers().get("x-api-version").unwrap(), "v1");
 }
@@ -306,7 +320,7 @@ async fn test_rate_limit_config() {
         .with_requests_per_window(100)
         .with_window(Duration::from_secs(30))
         .with_key_extractor(KeyExtractor::ApiKey);
-    
+
     assert_eq!(config.requests_per_window, 100);
     assert_eq!(config.window, Duration::from_secs(30));
     assert_eq!(config.key_extractor, KeyExtractor::ApiKey);
@@ -315,12 +329,12 @@ async fn test_rate_limit_config() {
 #[tokio::test]
 async fn test_token_bucket() {
     let mut bucket = TokenBucket::new(10, Duration::from_secs(60));
-    
+
     // Should allow 10 requests
     for _ in 0..10 {
         assert!(bucket.try_consume(1));
     }
-    
+
     // 11th should be denied
     assert!(!bucket.try_consume(1));
     assert_eq!(bucket.remaining(), 0);
@@ -332,12 +346,12 @@ async fn test_rate_limit_middleware() {
         .with_requests_per_window(5)
         .with_window(Duration::from_secs(60))
         .with_skip_paths(vec!["/health".to_string()]);
-    
+
     let app = Router::new()
         .route("/test", get(handler_rate_limit))
         .route("/health", get(|| async { "ok" }))
         .layer(rate_limit_layer(config));
-    
+
     // Allow 5 requests
     for i in 0..5 {
         let response = app
@@ -351,12 +365,17 @@ async fn test_rate_limit_middleware() {
             )
             .await
             .unwrap();
-        
-        assert_eq!(response.status(), StatusCode::OK, "Request {} should succeed", i + 1);
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {} should succeed",
+            i + 1
+        );
         assert!(response.headers().contains_key("x-ratelimit-limit"));
         assert!(response.headers().contains_key("x-ratelimit-remaining"));
     }
-    
+
     // 6th should be rate limited
     let response = app
         .oneshot(
@@ -368,9 +387,9 @@ async fn test_rate_limit_middleware() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    
+
     // Health check should still work
     let response = app
         .oneshot(
@@ -382,7 +401,7 @@ async fn test_rate_limit_middleware() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -395,7 +414,7 @@ async fn test_api_middleware_config() {
     let config = ApiMiddlewareConfig::new()
         .with_service_name("Test Service".to_string())
         .with_version("2.0.0".to_string());
-    
+
     assert_eq!(config.openapi.service_name, "Test Service");
     assert_eq!(config.openapi.version, "2.0.0");
 }
@@ -404,7 +423,7 @@ async fn test_api_middleware_config() {
 async fn test_create_api_router() {
     let config = ApiMiddlewareConfig::default();
     let app = create_api_router(config);
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -415,7 +434,7 @@ async fn test_create_api_router() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -423,7 +442,7 @@ async fn test_create_api_router() {
 async fn test_create_full_api_router() {
     let config = ApiMiddlewareConfig::default();
     let app = create_full_api_router(config);
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -434,7 +453,7 @@ async fn test_create_full_api_router() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().contains_key("x-request-id"));
     assert_eq!(
@@ -456,13 +475,13 @@ async fn test_error_response_format() {
     let app = Router::new()
         .route("/test", post(handler_validated_json))
         .layer(mediaedge_api::validation::validation_layer(config));
-    
+
     let request_body = json!({
         "name": "",
         "age": 150,
         "email": "invalid-email"
     });
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -474,28 +493,29 @@ async fn test_error_response_format() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let error: ErrorResponse = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(error.error, "validation_failed");
     assert!(error.details.is_some());
 }
 
 #[tokio::test]
 async fn test_version_deprecation_warning() {
-    let config = VersioningConfig::new()
-        .with_deprecated_versions(vec![ApiVersion::V1]);
-    
+    let config = VersioningConfig::new().with_deprecated_versions(vec![ApiVersion::V1]);
+
     let app = Router::new()
         .route("/test", get(handler_version))
         .layer(versioning_layer(config));
-    
+
     let mut headers = HeaderMap::new();
     headers.insert("X-API-Version", HeaderValue::from_static("v1"));
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -507,7 +527,7 @@ async fn test_version_deprecation_warning() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers().get("x-api-deprecated").unwrap(), "true");
     assert!(response.headers().contains_key("warning"));
@@ -518,11 +538,11 @@ async fn test_rate_limit_headers() {
     let config = RateLimitConfig::new()
         .with_requests_per_window(2)
         .with_window(Duration::from_secs(60));
-    
+
     let app = Router::new()
         .route("/test", get(handler_rate_limit))
         .layer(rate_limit_layer(config));
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -533,9 +553,12 @@ async fn test_rate_limit_headers() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers().get("x-ratelimit-limit").unwrap(), "2");
-    assert_eq!(response.headers().get("x-ratelimit-remaining").unwrap(), "1");
+    assert_eq!(
+        response.headers().get("x-ratelimit-remaining").unwrap(),
+        "1"
+    );
     assert!(response.headers().contains_key("x-ratelimit-reset"));
 }

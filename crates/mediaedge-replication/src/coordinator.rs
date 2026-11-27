@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use etcd_client::{Client, Compare, CompareOp, TxnOp, TxnOpResponse, WatchOptions};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, RwLock as TokioRwLock};
+use tokio::sync::{RwLock as TokioRwLock, mpsc};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
@@ -35,12 +35,27 @@ pub struct ReplicationCoordinator {
 /// Coordinator events.
 #[derive(Debug, Clone)]
 pub enum CoordinatorEvent {
-    PlanCreated { plan_id: String },
-    PlanUpdated { plan_id: String },
-    PlanDeleted { plan_id: String },
-    ReplicaPromoted { plan_id: String, replica_id: String },
-    ReplicaFailed { plan_id: String, replica_id: String, reason: String },
-    LeadershipChanged { is_leader: bool },
+    PlanCreated {
+        plan_id: String,
+    },
+    PlanUpdated {
+        plan_id: String,
+    },
+    PlanDeleted {
+        plan_id: String,
+    },
+    ReplicaPromoted {
+        plan_id: String,
+        replica_id: String,
+    },
+    ReplicaFailed {
+        plan_id: String,
+        replica_id: String,
+        reason: String,
+    },
+    LeadershipChanged {
+        is_leader: bool,
+    },
 }
 
 /// Replication plan.
@@ -79,9 +94,9 @@ pub struct DatacenterTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageClass {
-    Hot,    // NVMe, low latency
-    Warm,   // SSD, medium latency
-    Cold,   // S3/Glacier, high latency
+    Hot,  // NVMe, low latency
+    Warm, // SSD, medium latency
+    Cold, // S3/Glacier, high latency
 }
 
 /// Erasure coding config reference.
@@ -169,7 +184,10 @@ impl ReplicationCoordinator {
 
     /// Start the coordinator.
     pub async fn start(&self) -> anyhow::Result<()> {
-        info!("Starting replication coordinator for node: {}", self.local_node_id);
+        info!(
+            "Starting replication coordinator for node: {}",
+            self.local_node_id
+        );
 
         // Start leader election
         self.start_leader_election().await?;
@@ -194,10 +212,10 @@ impl ReplicationCoordinator {
     pub async fn stop(&self) -> anyhow::Result<()> {
         info!("Stopping replication coordinator");
         let _ = self.shutdown_tx.send(true);
-        
+
         // Resign leadership if we're leader
         self.resign_leadership().await?;
-        
+
         Ok(())
     }
 
@@ -273,12 +291,24 @@ impl ReplicationCoordinator {
     async fn resign_leadership(&self) -> anyhow::Result<()> {
         if *self.is_leader.read() {
             let election_key = "mediaedge/replication/leader";
-            let compare = Compare::value(election_key, CompareOp::Equal, self.local_node_id.as_bytes().to_vec());
-            let txn = self.etcd.txn().when(vec![compare]).and_then(vec![TxnOp::delete(election_key)]).commit().await?;
-            
+            let compare = Compare::value(
+                election_key,
+                CompareOp::Equal,
+                self.local_node_id.as_bytes().to_vec(),
+            );
+            let txn = self
+                .etcd
+                .txn()
+                .when(vec![compare])
+                .and_then(vec![TxnOp::delete(election_key)])
+                .commit()
+                .await?;
+
             if txn.succeeded() {
                 *self.is_leader.write() = false;
-                let _ = self.event_tx.try_send(CoordinatorEvent::LeadershipChanged { is_leader: false });
+                let _ = self
+                    .event_tx
+                    .try_send(CoordinatorEvent::LeadershipChanged { is_leader: false });
                 info!("Resigned replication coordinator leadership");
             }
         }
@@ -294,7 +324,10 @@ impl ReplicationCoordinator {
 
         tokio::spawn(async move {
             let watch_key = "mediaedge/replication/plans/";
-            let mut watch_stream = etcd.watch(watch_key, Some(WatchOptions::new().with_prefix())).await.unwrap();
+            let mut watch_stream = etcd
+                .watch(watch_key, Some(WatchOptions::new().with_prefix()))
+                .await
+                .unwrap();
 
             while let Some(resp) = watch_stream.message().await.unwrap() {
                 if *shutdown_rx.borrow() {
@@ -306,16 +339,24 @@ impl ReplicationCoordinator {
                         etcd_client::EventType::Put => {
                             if let Some(kv) = event.kv() {
                                 let key = String::from_utf8_lossy(kv.key()).to_string();
-                                let plan_id = key.strip_prefix("mediaedge/replication/plans/").unwrap_or(&key);
-                                
-                                if let Ok(plan) = serde_json::from_slice::<ReplicationPlan>(kv.value()) {
+                                let plan_id = key
+                                    .strip_prefix("mediaedge/replication/plans/")
+                                    .unwrap_or(&key);
+
+                                if let Ok(plan) =
+                                    serde_json::from_slice::<ReplicationPlan>(kv.value())
+                                {
                                     plans.insert(plan_id.to_string(), plan.clone());
-                                    
+
                                     let is_new = !plans.contains_key(plan_id);
                                     if is_new {
-                                        let _ = event_tx.try_send(CoordinatorEvent::PlanCreated { plan_id: plan_id.to_string() });
+                                        let _ = event_tx.try_send(CoordinatorEvent::PlanCreated {
+                                            plan_id: plan_id.to_string(),
+                                        });
                                     } else {
-                                        let _ = event_tx.try_send(CoordinatorEvent::PlanUpdated { plan_id: plan_id.to_string() });
+                                        let _ = event_tx.try_send(CoordinatorEvent::PlanUpdated {
+                                            plan_id: plan_id.to_string(),
+                                        });
                                     }
                                 }
                             }
@@ -323,10 +364,14 @@ impl ReplicationCoordinator {
                         etcd_client::EventType::Delete => {
                             if let Some(kv) = event.kv() {
                                 let key = String::from_utf8_lossy(kv.key()).to_string();
-                                let plan_id = key.strip_prefix("mediaedge/replication/plans/").unwrap_or(&key);
-                                
+                                let plan_id = key
+                                    .strip_prefix("mediaedge/replication/plans/")
+                                    .unwrap_or(&key);
+
                                 plans.remove(plan_id);
-                                let _ = event_tx.try_send(CoordinatorEvent::PlanDeleted { plan_id: plan_id.to_string() });
+                                let _ = event_tx.try_send(CoordinatorEvent::PlanDeleted {
+                                    plan_id: plan_id.to_string(),
+                                });
                             }
                         }
                     }
@@ -360,7 +405,7 @@ impl ReplicationCoordinator {
 
                         for entry in replicas.iter() {
                             let replica = entry.value();
-                            
+
                             // Check heartbeat timeout (2 minutes)
                             if now.saturating_sub(replica.last_heartbeat) > 120 {
                                 if replica.status == ReplicaStatus::Active || replica.status == ReplicaStatus::Degraded {
@@ -371,7 +416,7 @@ impl ReplicationCoordinator {
                             // Update health score based on recency
                             let age = now.saturating_sub(replica.last_heartbeat);
                             let health = if age < 30 { 1.0 } else if age < 60 { 0.7 } else if age < 120 { 0.4 } else { 0.1 };
-                            
+
                             if let Some(mut r) = replicas.get_mut(entry.key()) {
                                 r.health_score = health;
                                 if health < 0.5 && r.status == ReplicaStatus::Active {
@@ -383,16 +428,16 @@ impl ReplicationCoordinator {
                         // Handle failed replicas
                         for (plan_id, replica_id, node_id) in failed_replicas {
                             warn!("Replica failed: plan={}, replica={}, node={}", plan_id, replica_id, node_id);
-                            
+
                             if let Some(mut replica) = replicas.get_mut(&replica_id) {
                                 replica.status = ReplicaStatus::Failed;
                                 replica.updated_at = now;
                             }
 
-                            let _ = event_tx.try_send(CoordinatorEvent::ReplicaFailed { 
-                                plan_id: plan_id.clone(), 
-                                replica_id: replica_id.clone(), 
-                                reason: "Heartbeat timeout".to_string() 
+                            let _ = event_tx.try_send(CoordinatorEvent::ReplicaFailed {
+                                plan_id: plan_id.clone(),
+                                replica_id: replica_id.clone(),
+                                reason: "Heartbeat timeout".to_string()
                             });
 
                             // Trigger failover if we're leader
@@ -404,7 +449,7 @@ impl ReplicationCoordinator {
                         let active = replicas.iter().filter(|r| r.status == ReplicaStatus::Active).count();
                         let degraded = replicas.iter().filter(|r| r.status == ReplicaStatus::Degraded).count();
                         let failed = replicas.iter().filter(|r| r.status == ReplicaStatus::Failed).count();
-                        
+
                         metrics.gauge("replication_replicas_active", "Active replicas").set(active as f64);
                         metrics.gauge("replication_replicas_degraded", "Degraded replicas").set(degraded as f64);
                         metrics.gauge("replication_replicas_failed", "Failed replicas").set(failed as f64);
@@ -440,7 +485,7 @@ impl ReplicationCoordinator {
                         // Check each plan for demand triggers
                         for entry in plans.iter() {
                             let plan = entry.value();
-                            
+
                             if !plan.demand_trigger.enabled {
                                 continue;
                             }
@@ -448,7 +493,7 @@ impl ReplicationCoordinator {
                             // In real implementation, would query metrics for viewer count
                             // For now, simulate
                             let viewer_count = 0; // Would come from metrics
-                            
+
                             if viewer_count >= plan.demand_trigger.min_viewers {
                                 // Trigger demand-based replication
                                 Self::trigger_demand_replication(&plan, &replicas).await;
@@ -468,21 +513,32 @@ impl ReplicationCoordinator {
     }
 
     /// Trigger demand-based replication.
-    async fn trigger_demand_replication(plan: &ReplicationPlan, replicas: &Arc<DashMap<String, ReplicaState>>) {
+    async fn trigger_demand_replication(
+        plan: &ReplicationPlan,
+        replicas: &Arc<DashMap<String, ReplicaState>>,
+    ) {
         info!("Demand trigger activated for plan: {}", plan.plan_id);
-        
+
         // In real implementation, would create new replicas in target regions
         // based on the demand trigger configuration
     }
 
     /// Load existing plans from etcd.
     async fn load_plans(&self) -> anyhow::Result<()> {
-        let resp = self.etcd.get("mediaedge/replication/plans/", Some(WatchOptions::new().with_prefix())).await?;
-        
+        let resp = self
+            .etcd
+            .get(
+                "mediaedge/replication/plans/",
+                Some(WatchOptions::new().with_prefix()),
+            )
+            .await?;
+
         for kv in resp.kvs() {
             let key = String::from_utf8_lossy(kv.key()).to_string();
-            let plan_id = key.strip_prefix("mediaedge/replication/plans/").unwrap_or(&key);
-            
+            let plan_id = key
+                .strip_prefix("mediaedge/replication/plans/")
+                .unwrap_or(&key);
+
             if let Ok(plan) = serde_json::from_slice::<ReplicationPlan>(kv.value()) {
                 self.replication_plans.insert(plan_id.to_string(), plan);
             }
@@ -504,12 +560,17 @@ impl ReplicationCoordinator {
 
         let key = format!("mediaedge/replication/plans/{}", plan.plan_id);
         let value = serde_json::to_vec(&plan)?;
-        
-        self.etcd.put(key, value, None).await?;
-        self.replication_plans.insert(plan.plan_id.clone(), plan.clone());
 
-        let _ = self.event_tx.try_send(CoordinatorEvent::PlanCreated { plan_id: plan.plan_id });
-        self.metrics.counter("replication_plans_created_total", "Plans created").increment(1);
+        self.etcd.put(key, value, None).await?;
+        self.replication_plans
+            .insert(plan.plan_id.clone(), plan.clone());
+
+        let _ = self.event_tx.try_send(CoordinatorEvent::PlanCreated {
+            plan_id: plan.plan_id,
+        });
+        self.metrics
+            .counter("replication_plans_created_total", "Plans created")
+            .increment(1);
 
         Ok(())
     }
@@ -525,11 +586,14 @@ impl ReplicationCoordinator {
 
         let key = format!("mediaedge/replication/plans/{}", plan.plan_id);
         let value = serde_json::to_vec(&plan)?;
-        
-        self.etcd.put(key, value, None).await?;
-        self.replication_plans.insert(plan.plan_id.clone(), plan.clone());
 
-        let _ = self.event_tx.try_send(CoordinatorEvent::PlanUpdated { plan_id: plan.plan_id });
+        self.etcd.put(key, value, None).await?;
+        self.replication_plans
+            .insert(plan.plan_id.clone(), plan.clone());
+
+        let _ = self.event_tx.try_send(CoordinatorEvent::PlanUpdated {
+            plan_id: plan.plan_id,
+        });
         Ok(())
     }
 
@@ -543,8 +607,12 @@ impl ReplicationCoordinator {
         self.etcd.delete(key, None).await?;
         self.replication_plans.remove(plan_id);
 
-        let _ = self.event_tx.try_send(CoordinatorEvent::PlanDeleted { plan_id: plan_id.to_string() });
-        self.metrics.counter("replication_plans_deleted_total", "Plans deleted").increment(1);
+        let _ = self.event_tx.try_send(CoordinatorEvent::PlanDeleted {
+            plan_id: plan_id.to_string(),
+        });
+        self.metrics
+            .counter("replication_plans_deleted_total", "Plans deleted")
+            .increment(1);
 
         Ok(())
     }
@@ -556,16 +624,20 @@ impl ReplicationCoordinator {
 
     /// List all replication plans.
     pub fn list_plans(&self) -> Vec<ReplicationPlan> {
-        self.replication_plans.iter().map(|p| p.value().clone()).collect()
+        self.replication_plans
+            .iter()
+            .map(|p| p.value().clone())
+            .collect()
     }
 
     /// Register a replica.
     pub async fn register_replica(&self, replica: ReplicaState) -> anyhow::Result<()> {
         let key = format!("mediaedge/replication/replicas/{}", replica.replica_id);
         let value = serde_json::to_vec(&replica)?;
-        
+
         self.etcd.put(key, value, None).await?;
-        self.replica_states.insert(replica.replica_id.clone(), replica.clone());
+        self.replica_states
+            .insert(replica.replica_id.clone(), replica.clone());
 
         Ok(())
     }
@@ -576,8 +648,10 @@ impl ReplicationCoordinator {
             replica.last_heartbeat = chrono::Utc::now().timestamp() as u64;
             replica.size_bytes = size_bytes;
             replica.updated_at = replica.last_heartbeat;
-            
-            if replica.status == ReplicaStatus::Creating || replica.status == ReplicaStatus::Degraded {
+
+            if replica.status == ReplicaStatus::Creating
+                || replica.status == ReplicaStatus::Degraded
+            {
                 replica.status = ReplicaStatus::Active;
             }
         }
@@ -603,12 +677,14 @@ impl ReplicationCoordinator {
 
             replica.status = ReplicaStatus::Promoted;
 
-            let _ = self.event_tx.try_send(CoordinatorEvent::ReplicaPromoted { 
-                plan_id: plan_id.to_string(), 
-                replica_id: replica_id.to_string() 
+            let _ = self.event_tx.try_send(CoordinatorEvent::ReplicaPromoted {
+                plan_id: plan_id.to_string(),
+                replica_id: replica_id.to_string(),
             });
 
-            self.metrics.counter("replication_promotions_total", "Replica promotions").increment(1);
+            self.metrics
+                .counter("replication_promotions_total", "Replica promotions")
+                .increment(1);
         }
 
         Ok(())
@@ -623,9 +699,21 @@ impl ReplicationCoordinator {
     pub fn stats(&self) -> CoordinatorStats {
         let plans = self.replication_plans.len();
         let replicas = self.replica_states.len();
-        let active = self.replica_states.iter().filter(|r| r.status == ReplicaStatus::Active).count();
-        let degraded = self.replica_states.iter().filter(|r| r.status == ReplicaStatus::Degraded).count();
-        let failed = self.replica_states.iter().filter(|r| r.status == ReplicaStatus::Failed).count();
+        let active = self
+            .replica_states
+            .iter()
+            .filter(|r| r.status == ReplicaStatus::Active)
+            .count();
+        let degraded = self
+            .replica_states
+            .iter()
+            .filter(|r| r.status == ReplicaStatus::Degraded)
+            .count();
+        let failed = self
+            .replica_states
+            .iter()
+            .filter(|r| r.status == ReplicaStatus::Failed)
+            .count();
 
         CoordinatorStats {
             is_leader: self.is_leader(),
@@ -665,20 +753,16 @@ mod tests {
             plan_id: "plan-1".to_string(),
             stream_id: "stream-1".to_string(),
             source_region: "us-east-1".to_string(),
-            target_regions: vec![
-                TargetRegion {
-                    region: "eu-west-1".to_string(),
-                    datacenters: vec![
-                        DatacenterTarget {
-                            datacenter: "dc1".to_string(),
-                            node_ids: vec![],
-                            storage_class: StorageClass::Hot,
-                            min_replicas: 2,
-                        },
-                    ],
-                    priority: 1,
-                },
-            ],
+            target_regions: vec![TargetRegion {
+                region: "eu-west-1".to_string(),
+                datacenters: vec![DatacenterTarget {
+                    datacenter: "dc1".to_string(),
+                    node_ids: vec![],
+                    storage_class: StorageClass::Hot,
+                    min_replicas: 2,
+                }],
+                priority: 1,
+            }],
             erasure_config: ErasureConfigRef {
                 k: 10,
                 m: 4,
